@@ -14,13 +14,14 @@ def main():
     dist = distances(nodes)
     sinkdist = sinkdistances(nodes, sink)
     dist_err = errorize(dist, sigma, mu, beta, tx_pow)
+    sinkdist_err = errorize(sinkdist, sigma, mu, beta, tx_pow)
     net = []
     netOrganize(net, [], nodes.shape[0], dist, maxrange, sinkdist)
-#    est = net_estimate(dist_err)
+    est = net_estimate(dist_err, sinkdist_err, maxrange)
     print(net)
     print(dist)
     print(dist_err)
-#    print(est)
+    print(est)
 
 def generate_nodes(n, radius):
     nodes = np.zeros((n, 2))
@@ -95,33 +96,68 @@ def netFull(net, nodes):
         found[e[1]] = 1
     return (found == 1).all()
 
-def net_estimate():
-    detect = detect(dist_err, sinkdist_err)
-    ref1, ref1_est = firstreference(sinkdist_err, detect)
-    ref2, ref2_est = secondreference(dist_err, sinkdist_err, detect)
-    est = np.zeros(dist_err.shape)
-    ready = []
-    update(est, ready, [ref1, ref2], [ref1_est, ref2_est])
-    while not allReady(ready, dist_err.shape[0]):
-        netEstimateRound(est, ready, dist_err, sinkdist_err, detect)
-    return est
-
-def netEstimateRound(est, ready, dist, sinkdist, detect):
+def netEstimateRound(est, ready, dist, sinkdist, detect, sinkdet):
     newest = copy.deepcopy(est)
     newready = copy.deepcopy(ready)
     for i in range(sinkdist.shape[0]):
         dist_i = []
         est_i = []
-        for j in range(sinkdist-shape[0]):
-            if (j in ready) and ((j,i) in detect):
+        for j in range(sinkdist.shape[0]):
+            if (j in ready) and detect[j, i]:
                 dist_i.append(dist[j, i])
                 est_j_i.append(est[j])
-        if len(dist_i_ix) > 3:
+        if sinkdet[i]:
+            dist_i.append(sinkdist[i])
+            est_i.append((0, 0))
+        if len(dist_i_ix) >= 3:
             newest[i] = pe.position_estimate(est_i, dist_i)
             newready.append(i)
     est = newest
     ready = newready
     return
+
+def detect(dist, sinkdist, rge):
+    det = np.zeros(dist.shape)
+    sinkdet = np.zeros(sinkdist.shape)
+    for i in range(dist.shape[0]):
+        for j in range(dist.shape[0]):
+            if dist[i, j] <= rge:
+                det[i, j] = True
+    for i in range(sinkdist.shape[0]):
+        if sinkdist[i] <= rge:
+            sinkdet[i] = True
+
+def firstreference(sinkdist, sinkdet):
+    min_ix = 0
+    for i in range(sinkdist.shape[0]):
+        if sinkdet[i] and sinkdist[i] < sinkdist[min_ix]:
+            min_ix = i
+    return min_ix
+
+def secondreference(sinkdist, sinkdet, ref1):
+    min_ix = 0
+    for i in range(sinkdist.shape[0]):
+        if sinkdet[i] and sinkdist[i] < sinkdist[min_ix] and i != ref1:
+            min_ix = i
+    return min_ix
+
+def allReady(ready, num):
+    for i in range(num):
+        if i not in ready:
+            return False
+    return True
+
+def net_estimate(dist_err, sinkdist_err, rge):
+    det, sinkdet = detect(dist_err, sinkdist_err, rge)
+    ref1, ref1_est = firstreference(sinkdist_err, sinkdet)
+    ref2, ref2_est = secondreference(sinkdist_err, sinkdet, ref1)
+    est = np.zeros(dist_err.shape)
+    ready = []
+    update(est, ready, [ref1, ref2], [ref1_est, ref2_est])
+    while not allReady(ready, dist_err.shape[0]):
+        netEstimateRound(est, ready, dist_err, sinkdist_err, det, sinkdet)
+    return est
+
 
 if __name__ == '__main__':
     main()

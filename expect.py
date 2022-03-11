@@ -5,6 +5,9 @@ from copy import deepcopy
 
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+def polar_to_cart(r, theta):
+    return (r * np.cos(theta), r * np.sin(theta))
+
 def cart_to_polar(x, y):
     if np.size(x) == 1:
         r = np.sqrt(x**2+y**2)

@@ -1,5 +1,6 @@
 import numpy as np
 import random as rd
+import expect as exp
 def distance_bias_multiplier(sigma, gamma):
     return 10 ** (np.log(10) * (sigma ** 2)/(200 * (gamma ** 2)))
 
@@ -38,6 +39,14 @@ def nonbiased_calculate_distance(rx_pow, tx_pow, mu, beta, sigma):
     return calculate_distance(rx_pow, tx_pow, mu, beta) / distance_bias_multiplier(sigma, 2)
 
 def bilaterate(pos1, pos2, d1, d2):
+    '''
+    Gives two alternative
+    :param pos1:
+    :param pos2:
+    :param d1:
+    :param d2:
+    :return:
+    '''
     x1 = pos1[0]
     y1 = pos1[1]
     x2 = pos2[0]
@@ -193,3 +202,35 @@ def trilaterate_simple(pos1, pos2, pos3, d1, d2, d3):
     est2 = pair2[ix[1]]
     est3 = pair3[ix[2]]
     return ((est1[0] + est2[0] + est3[0]) / 3, (est1[1] + est2[1] + est3[1]) / 3)
+
+def position_estimate(pos, dist):
+    length = len(pos)
+    if length < 3:
+        if length == 2:
+            return position_estimate_two(pos[0], pos[1], dist[0], dis[1])
+        if length == 1:
+            return position_estimate_one(pos[0], dist[0])
+        else:
+            #length == 0
+            return (0, 0, 0)
+    else:
+        trila = []
+        for i in range(len(pos)):
+            for j in range(i + 1, len(pos)):
+                for k in range(j + 1, len(pos)):
+                    trila.append(trilaterate_simple(pos[i], pos[j], pos[k], dist[i], dist[j], dist[k]))
+        trila_np = np.array(trila)
+        return np.average(trila_np, axis=0)
+
+def position_estimate_two(p0, p1, d0, d1):
+    est0, est1 = bilaterate(p0, p1, d0, d1)
+    r0, _ = exp.cart_to_polar(p0[0], p0[1])
+    r1, _ = exp.cart_to_polar(p1[0], p1[1])
+    if r1 > r0:
+        return est1
+    else:
+        return est0
+
+def position_estimate_one(pos, dist):
+    r, theta = exp.cart_to_polar(pos)
+    return ((r + dist) / r) * pos
