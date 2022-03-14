@@ -17,14 +17,43 @@ def distance_error_generate(r, sigma, tx_pow, mu, beta, bias=True):
 def calculate_distance(rx_pow, tx_pow, mu, beta):
     '''
     gives the distance by transmission and receiving power of the signal,
-    using the simplest model for path loss in free space. The constant
+    using the Friis model for path loss in free space. The constant
     173.491005787 is the wavelength of signal with frequency 1.728 MHz
 
     :param rx_pow: receiver power in dB
     :param tx_pow: transmitter power in dB
     :return: distance in meters
     '''
-    return 10 ** ((tx_pow - rx_pow - np.log10(4 * np.pi * mu * beta/173.491005787)) / 20)
+    return 10 ** ((tx_pow - rx_pow)/20 - np.log10(173.491005787 /(4 * np.pi * mu * beta)))
+
+def calculate_distance_2(rx_pow, tx_pow, mu, beta, gain_tx, gain_rx):
+    '''
+    gives the distance by transmission and receiving power of the signal,
+    using the Friis model for path loss in free space. The constant
+    173.491005787 is the wavelength of signal with frequency 1.728 MHz.
+    Antenna gains are accounted for.
+
+    :param rx_pow: receiver power in dB
+    :param tx_pow: transmitter power in dB
+    :return: distance in meters
+    '''
+    return 10 ** ((tx_pow - rx_pow + gain_tx + gain_rx)/20 + np.log10(173.491005787 / 4*np.pi*mu * beta))
+
+def calculate_distance_with_ref(rx_pow, tx_pow, mu, beta):
+    '''
+    gives the distance by transmission and receiving power of the signal,
+    using general log-distance path loss model with reference distance of
+    1 meter. Reference distance path loss has to be determined in its
+    own function, ref_dist_pl(). Free space is assumed, thus the path loss exponent is 2.
+
+    :param rx_pow: receiver power in dB
+    :param tx_pow: transmitter power in dB
+    :return: distance in meters
+    '''
+    return 1 * 10 ** ((tx_pow - rx_pow - ref_dist_pl(mu, beta)) / 20)
+
+def ref_dist_pl(mu, beta):
+    return -22.8013420153 + 20 * np.log10(mu*beta)
 
 def nonbiased_calculate_distance(rx_pow, tx_pow, mu, beta, sigma):
     '''
