@@ -4,17 +4,27 @@ import expect as exp
 def distance_bias_multiplier(sigma, gamma):
     return 10 ** (np.log(10) * (sigma ** 2)/(200 * (gamma ** 2)))
 
-def distance_error_generate(r, sigma, tx_pow, mu, beta, bias=True):
-    powdiff = 2*10*np.log10(r) + np.log10(4*np.pi*mu*beta/173.491005787)
+def distance_error_generate(r, sigma, tx_pow, bias=True):
+    if r == 0:
+        return 0
+    powdiff = 2*10*(np.log10(r) + np.log10(0.0999308193333333 /(4 * np.pi)))
     # powdiff = gamma*10*np.log10(dis/dis_0)
     powerror = np.random.normal(0, sigma)
     if bias:
-        r_err = calculate_distance(tx_pow - powdiff + powerror, tx_pow, mu, beta)
+        r_err = calculate_distance(tx_pow - powdiff + powerror, tx_pow)
     else:
         r_err = nonbiased_calculate_distance(tx_pow - powdiff + powerror, tx_pow, mu, beta, sigma)
     return r_err
 
-def calculate_distance(rx_pow, tx_pow, mu, beta):
+def errored_signal_generate(r, sigma, tx_pow):
+    if r == 0:
+        return 0
+    powdiff = 2 * 10 * (np.log10(r) + np.log10(0.0999308193333333 / (4 * np.pi)))
+    # powdiff = gamma*10*np.log10(dis/dis_0)
+    powerror = np.random.normal(0, sigma)
+    return powdiff + powerror
+
+def calculate_distance(rx_pow, tx_pow):
     '''
     gives the distance by transmission and receiving power of the signal,
     using the Friis model for path loss in free space. The constant
@@ -24,7 +34,7 @@ def calculate_distance(rx_pow, tx_pow, mu, beta):
     :param tx_pow: transmitter power in dB
     :return: distance in meters
     '''
-    return 10 ** ((tx_pow - rx_pow)/20 - np.log10(173.491005787 /(4 * np.pi * mu * beta)))
+    return 10 ** ((tx_pow - rx_pow)/20 + np.log10(0.0999308193333333 /(4 * np.pi)))
 
 def calculate_distance_2(rx_pow, tx_pow, mu, beta, gain_tx, gain_rx):
     '''
@@ -236,7 +246,7 @@ def position_estimate(pos, dist):
     length = len(pos)
     if length < 3:
         if length == 2:
-            return position_estimate_two(pos[0], pos[1], dist[0], dis[1])
+            return position_estimate_two(pos[0], pos[1], dist[0], dist[1])
         if length == 1:
             return position_estimate_one(pos[0], dist[0])
         else:

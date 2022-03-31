@@ -3,19 +3,22 @@
 import os, sys, signal, argparse
 import numpy as np
 import matplotlib.pyplot as plt
+import net_estimator as nest
+import position_estimator as pe
 
-def calculate_distance(rx_pow, tx_pow, mu, beta):
+def calculate_distance(rx_pow, tx_pow):
     '''
     gives the distance by transmission and receiving power of the signal,
-    using the simplest model for path loss in free space. The constant
+    using the Friis model for path loss in free space. The constant
     173.491005787 is the wavelength of signal with frequency 1.728 MHz
+
     :param rx_pow: receiver power in dB
     :param tx_pow: transmitter power in dB
     :return: distance in meters
     '''
-    return 10 ** ((tx_pow - rx_pow - np.log10(4 * np.pi * mu * beta/173.491005787)) / 20)
+    return 10 ** ((tx_pow - rx_pow)/20 + np.log10(0.0999308193333333 /(4 * np.pi)))
 
-def triangle_estimate(pos1, pos2, d1, d2):
+def bilaterate(pos1, pos2, d1, d2):
     x1 = pos1[0]
     y1 = pos1[1]
     x2 = pos2[0]
@@ -56,7 +59,7 @@ def find_ix(pair1, pair2, pair3):
                     ix = (i, j, k)
     return ix
 
-def position_estimate_simple(pos1, pos2, pos3, d1, d2, d3):
+def trilaterate_simple(pos1, pos2, pos3, d1, d2, d3):
     '''
     Gives a simple method to estimate a node's position given the positions of three
     other nodes (pos1, pos2, pos3) and distances from them.
@@ -71,29 +74,36 @@ def position_estimate_simple(pos1, pos2, pos3, d1, d2, d3):
     :param d3: distance from node3
     :return: calculated position of the node to be located
     '''
-    pair1 = triangle_estimate(pos1, pos2, d1, d2)
-    pair2 = triangle_estimate(pos1, pos3, d1, d3)
-    pair3 = triangle_estimate(pos2, pos3, d2, d3)
+    pair1 = bilaterate(pos1, pos2, d1, d2)
+    pair2 = bilaterate(pos1, pos3, d1, d3)
+    pair3 = bilaterate(pos2, pos3, d2, d3)
     ix = find_ix(pair1, pair2, pair3)
     est1 = pair1[ix[0]]
     est2 = pair2[ix[1]]
     est3 = pair3[ix[2]]
     return ((est1[0] + est2[0] + est3[0]) / 3, (est1[1] + est2[1] + est3[1]) / 3)
 
+
 def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument('-f','--fileIn', nargs=1, help='Input file', required=True)
     args = parser.parse_args()
-    x=np.array([])
-    if (os.path.exists(args.fileIn[0])):
-        x = np.genfromtxt(args.fileIn[0], delimiter = ' ', dtype = None, encoding='utf-8');
+    signalgenmode = 'file'
+    x = np.array([])
+    if signalgenmode == 'file':
+        if (os.path.exists(args.fileIn[0])):
+            x = np.genfromtxt(args.fileIn[0], delimiter = ' ', dtype = None, encoding='utf-8');
+        else:
+            print(filePath, "not found!")
     else:
-        print(filePath, "not found!")
+        x = genx()
 
     refFound = False
     pos = dict()
     signal = dict ()
     devs=set()
+
+
     for s in x:
         dev1 = s[0]
         dev2 = s[1]
@@ -113,13 +123,13 @@ def main(argv):
                         print(dev3,dev1,dev2)
                         pos[dev3] = (0, 0)
 
-                        dist31 = calculate_distance(signal[dev3][dev1], 23, 1, 1)
+                        dist31 = calculate_distance(signal[dev3][dev1], 23)
                         pos[dev1] = (0, dist31)
 
-                        dist32 = calculate_distance(signal[dev3][dev2], 23, 1, 1)
-                        dist12 = calculate_distance(signal[dev1][dev2], 23, 1, 1)
+                        dist32 = calculate_distance(signal[dev3][dev2], 23)
+                        dist12 = calculate_distance(signal[dev1][dev2], 23)
 
-                        dev2Pos = triangle_estimate(pos[dev3], pos[dev1], dist32, dist12)
+                        dev2Pos = bilaterate(pos[dev3], pos[dev1], dist32, dist12)
                         if dev2Pos[0][0] >= 0 and dev2Pos[0][1] >= 0:
                             pos[dev2] = dev2Pos[0]
                         else:
@@ -132,10 +142,10 @@ def main(argv):
                     for dev3 in signal:
                         if dev != dev1 and dev != dev2 and dev != dev3 and dev1 != dev2 and dev1 != dev3 and dev2 != dev3 and dev in signal[dev1] and dev in signal[dev2] and dev in signal[dev3] and dev1 in pos and dev2 in pos and dev3 in pos and dev not in pos:
                             print(dev,dev1,dev2,dev3)
-                            dist14 = calculate_distance(signal[dev1][dev], 23, 1, 1)
-                            dist24 = calculate_distance(signal[dev2][dev], 23, 1, 1)
-                            dist34 = calculate_distance(signal[dev3][dev], 23, 1, 1)
-                            pos[dev] = position_estimate_simple(pos[dev1], pos[dev2], pos[dev3], dist14, dist24, dist34)
+                            dist14 = calculate_distance(signal[dev1][dev], 23)
+                            dist24 = calculate_distance(signal[dev2][dev], 23)
+                            dist34 = calculate_distance(signal[dev3][dev], 23)
+                            pos[dev] = trilaterate_simple(pos[dev1], pos[dev2], pos[dev3], dist14, dist24, dist34)
 
 
     fig, ax = plt.subplots(figsize=(6,6),num="Node positions")
@@ -146,6 +156,31 @@ def main(argv):
         ax.annotate(p.replace("Dev-",""), size=8, xy=[pos[p][0], pos[p][1]], xytext=(1, 1), textcoords='offset points')
     ax.axis('equal')
     plt.pause(0)
+
+def genx():
+    sink = (0, 0)
+    coordfixer = True
+    nodes = nest.generate_nodes(100, 2500)
+    if coordfixer:
+        min = np.min([x[0] ** 2 + x[1] ** 2 for x in nodes])
+        nodes = np.concatenate((nodes, np.array([((1 / 2) * np.sqrt(min), 0),
+                                                 ((1 / 2) * np.sqrt(min), (1 / 2) * np.sqrt(min))], )), axis=0)
+    maxrange = 1500
+    sigma = 0.5
+    tx_pow = 100
+    dist = nest.distances(nodes)
+    sinkdist = nest.sinkdistances(nodes, sink)
+    x_nodes = nest.signals_errorize(dist, sigma, tx_pow)
+    x_sink = nest.signals_errorize(sinkdist, sigma, tx_pow)
+    return generate(x_sink, x_nodes)
+
+def generate(x_sink, x_nodes):
+    x = np.array([])
+    for i, y in enumerate(x_sink):
+        x = np.concatenate((x, [('sink', 'Dev'+str(i), y)]))
+    for i, y in np.ndenumerate(x_nodes):
+        x = np.concatenate((x, [('Dev'+str(i[0]), 'Dev'+str(i[1]), y)]))
+    return x
 
 def sigint_handler(signal, frame):
     print ('KeyboardInterrupt')
