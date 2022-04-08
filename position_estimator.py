@@ -7,7 +7,7 @@ def distance_bias_multiplier(sigma, gamma):
 def distance_error_generate(r, sigma, tx_pow, bias=True):
     if r == 0:
         return 0
-    powdiff = 2*10*(np.log10(r) + np.log10(0.0999308193333333 /(4 * np.pi)))
+    powdiff = 2*10*(np.log10(r) + np.log10((4 * np.pi) / 0.0999308193333333))
     # powdiff = gamma*10*np.log10(dis/dis_0)
     powerror = np.random.normal(0, sigma)
     if bias:
@@ -47,7 +47,7 @@ def calculate_distance_2(rx_pow, tx_pow, mu, beta, gain_tx, gain_rx):
     :param tx_pow: transmitter power in dB
     :return: distance in meters
     '''
-    return 10 ** ((tx_pow - rx_pow + gain_tx + gain_rx)/20 + np.log10(173.491005787 / 4*np.pi*mu * beta))
+    return 10 ** ((tx_pow - rx_pow + gain_tx + gain_rx)/20 + np.log10(0.0999308193333333 / 4*np.pi*mu * beta))
 
 def calculate_distance_with_ref(rx_pow, tx_pow, mu, beta):
     '''
