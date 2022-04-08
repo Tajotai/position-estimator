@@ -8,13 +8,13 @@ import matplotlib.pyplot as plt
 def main():
     sink = (0, 0)
     coordfixer = False
-    nodes = generate_nodes(20, 1000)
+    nodes = generate_nodes(20, 750)
     if coordfixer:
         min = np.min([x[0]**2 + x[1]**2 for x in nodes])
         nodes = np.concatenate((nodes, np.array([((1/2)*np.sqrt(min), 0),
                                                  ((1/2)*np.sqrt(min), (1/2)*np.sqrt(min))], )), axis=0)
     maxrange = 750
-    sigma = 0
+    sigma = 8.0
     tx_pow = 100
     dist = distances(nodes)
     sinkdist = sinkdistances(nodes, sink)
@@ -223,16 +223,18 @@ def fix_est(est, ref1, ref2, node1, node2):
 
 def plot_pos(nodes, est):
     fig, ax = plt.subplots(figsize=(6,6),num="Node positions")
-
-    for n in nodes:
+    colors = ['black','blue','red','green','brown','orange','gold','pink','cyan','lime']
+    for ix, n in enumerate(nodes):
         # print(pos[p])
         plt.plot(n[0], n[1], label='', linestyle="None", marker='o', markersize=1, color='black', fillstyle='none')
+        ax.annotate(text =str(ix), xy = [n[0], n[1]], color=colors[ix % len(colors)])
+
 
     fig_est, ax_est = plt.subplots(figsize=(6, 6), num="Estimated positions")
-    for n in est:
+    for ix, n in enumerate(est):
         # print(pos[p])
         plt.plot(n[0], n[1], label='', linestyle="None", marker='o', markersize=1, color='black', fillstyle='none')
-
+        ax_est.annotate(text =str(ix), xy = [n[0], n[1]], color=colors[ix % len(colors)])
     ax.axis('equal')
     ax_est.axis('equal')
     plt.pause(0)

@@ -88,7 +88,7 @@ def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument('-f','--fileIn', nargs=1, help='Input file', required=True)
     args = parser.parse_args()
-    signalgenmode = 'random'
+    signalgenmode = 'file'
     x = np.array([])
     if signalgenmode == 'file':
         if (os.path.exists(args.fileIn[0])):
