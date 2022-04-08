@@ -3,17 +3,18 @@ import random as rd
 import position_estimator as pe
 import expect as exp
 import copy
+import matplotlib.pyplot as plt
 
 def main():
     sink = (0, 0)
-    coordfixer = True
-    nodes = generate_nodes(100, 2500)
+    coordfixer = False
+    nodes = generate_nodes(20, 1000)
     if coordfixer:
         min = np.min([x[0]**2 + x[1]**2 for x in nodes])
         nodes = np.concatenate((nodes, np.array([((1/2)*np.sqrt(min), 0),
                                                  ((1/2)*np.sqrt(min), (1/2)*np.sqrt(min))], )), axis=0)
-    maxrange = 1500
-    sigma = 0.5
+    maxrange = 750
+    sigma = 0
     tx_pow = 100
     dist = distances(nodes)
     sinkdist = sinkdistances(nodes, sink)
@@ -27,6 +28,8 @@ def main():
     print("fixed_est: "+str(fixed_est) )
     print("original: "+str(nodes))
     print("error: "+str(fixed_est - nodes))
+
+    plot_pos(nodes, fixed_est)
 
 
 def generate_nodes(n, radius):
@@ -218,6 +221,21 @@ def fix_est(est, ref1, ref2, node1, node2):
         derot[i] = (newx, newy)
     return derot
 
+def plot_pos(nodes, est):
+    fig, ax = plt.subplots(figsize=(6,6),num="Node positions")
+
+    for n in nodes:
+        # print(pos[p])
+        plt.plot(n[0], n[1], label='', linestyle="None", marker='o', markersize=1, color='black', fillstyle='none')
+
+    fig_est, ax_est = plt.subplots(figsize=(6, 6), num="Estimated positions")
+    for n in est:
+        # print(pos[p])
+        plt.plot(n[0], n[1], label='', linestyle="None", marker='o', markersize=1, color='black', fillstyle='none')
+
+    ax.axis('equal')
+    ax_est.axis('equal')
+    plt.pause(0)
 
 if __name__ == '__main__':
     main()
