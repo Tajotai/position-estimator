@@ -77,6 +77,9 @@ def nonbiased_calculate_distance(rx_pow, tx_pow, mu, beta, sigma):
     '''
     return calculate_distance(rx_pow, tx_pow, mu, beta) / distance_bias_multiplier(sigma, 2)
 
+def update_distance_simple(dist, n, newpow):
+    return
+
 def bilaterate(pos1, pos2, d1, d2):
     '''
     Gives two alternative
@@ -273,3 +276,4 @@ def position_estimate_two(p0, p1, d0, d1):
 def position_estimate_one(pos, dist):
     r, theta = exp.cart_to_polar(pos)
     return ((r + dist) / r) * pos
+

@@ -14,7 +14,7 @@ def main():
         nodes = np.concatenate((nodes, np.array([((1/2)*np.sqrt(min), 0),
                                                  ((1/2)*np.sqrt(min), (1/2)*np.sqrt(min))], )), axis=0)
     maxrange = 750
-    sigma = 8.0
+    sigma = 0.8
     tx_pow = 100
     dist = distances(nodes)
     sinkdist = sinkdistances(nodes, sink)
