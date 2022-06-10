@@ -1,7 +1,7 @@
 import numpy as np
 import copy
 
-def maximize_conjugate_gradient(function, dim, partial_diffs, init, iters=10, onedimiters = 5, onedimigap = 100, tol = 0.0001):
+def maximize_conjugate_gradient(function, dim, partial_diffs, init, iters=10, onedimiters = 5, onedimigap = 100, tol = 0.000001):
     '''
     Maximizes the function numerically using conjugate gradient method
 
@@ -16,15 +16,25 @@ def maximize_conjugate_gradient(function, dim, partial_diffs, init, iters=10, on
     if dim == 1:
         return maximize_one_dim(function, init, onedimiters)
     P = init
-    g = grad(init, partial_diffs)
+    fP = function(P)
+    fret = 0
+    g = - grad(init, partial_diffs)
     h = g
     for i in range(iters):
         fun_lin = lambda x : function(P + x * h)
-        min_x, _ = maximize_one_dim_brent(fun_lin, 0, onedimiters, initgap=onedimigap/np.sqrt(np.vdot(h, h)))
+        # min_x, fret = maximize_one_dim_brent(fun_lin, 0, onedimiters, initgap=onedimigap*fdiff/np.sqrt(np.vdot(h, h)))
+        min_x, fret = maximize_one_dim_brent(fun_lin, 0, onedimiters,
+                                             initgap=onedimigap / np.sqrt(np.vdot(h, h)))
+        fdiff = np.abs(fP - fret)
+        if 2 * fdiff <= tol * (np.abs(fP) + np.abs(fret) + 0.000000001) and i != 0:
+            return P, fP
+        fP = fret
         P = P + min_x * h
         g_next = - grad(P, partial_diffs)
         gamma = np.vdot(g_next - g, g_next) / np.vdot(g, g)
         h = g_next + gamma * h
+        g = g_next
+    print("Warning! Max iters reached in conjugate gradient.")
     return P, function(P)
 
 def grad(x, partial_diffs):
@@ -160,7 +170,7 @@ if __name__ == '__main__':
     like_ = lambda x : like(x[0], x[1], losses, xi, yi)
     ddx_like = lambda x: (like_(np.array([x[0]+0.0001,x[1]])) - like_(x))*10000
     ddy_like = lambda x: (like_(np.array([x[0], x[1] + 0.0001])) - like_(x)) * 10000
-    xy_max = maximize_conjugate_gradient(like_, 2, [ddx_like, ddy_like], np.array([0, 10]), iters=20,
-                                         onedimiters=10, onedimigap=5)
+    xy_max = maximize_conjugate_gradient(like_, 2, [ddx_like, ddy_like], np.array([0, 10]), iters=10,
+                                         onedimiters=5, onedimigap=10)
     print(xy_max)
 

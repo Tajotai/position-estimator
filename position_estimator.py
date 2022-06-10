@@ -1,13 +1,18 @@
 import numpy as np
 import random as rd
 import expect as exp
+import maximize as mx
+
 def distance_bias_multiplier(sigma, gamma):
     return 10 ** (np.log(10) * (sigma ** 2)/(200 * (gamma ** 2)))
+
+def calculate_path_loss(dist):
+    return 2 * 10 * (np.log10(dist) + np.log10((4 * np.pi) / 0.0999308193333333))
 
 def distance_error_generate(r, sigma, tx_pow, bias=True):
     if r == 0:
         return 0
-    powdiff = 2*10*(np.log10(r) + np.log10((4 * np.pi) / 0.0999308193333333))
+    powdiff = calculate_path_loss(r)
     # powdiff = gamma*10*np.log10(dis/dis_0)
     powerror = np.random.normal(0, sigma)
     if bias:
@@ -153,7 +158,7 @@ def trilaterate_simple(pos1, pos2, pos3, d1, d2, d3):
     est1 = pair1[ix[0]]
     est2 = pair2[ix[1]]
     est3 = pair3[ix[2]]
-    return ((est1[0] + est2[0] + est3[0]) / 3, (est1[1] + est2[1] + est3[1]) / 3)
+    return np.array([(est1[0] + est2[0] + est3[0]) / 3, (est1[1] + est2[1] + est3[1]) / 3])
 
 def position_estimate(pos, dist):
     length = len(pos)
@@ -186,4 +191,54 @@ def position_estimate_two(p0, p1, d0, d1):
 def position_estimate_one(pos, dist):
     r, theta = exp.cart_to_polar(pos)
     return ((r + dist) / r) * pos
+
+def position_estimate_like(pos, dist):
+    losses = calculate_path_loss(dist)
+    xi = pos[:, 0]
+    yi = pos[:, 1]
+    like_ = lambda x: like(x[0], x[1], losses, xi, yi)
+    ddx_like = lambda x: (like_(np.array([x[0] + 0.0001, x[1]])) - like_(x)) * 10000
+    ddy_like = lambda x: (like_(np.array([x[0], x[1] + 0.0001])) - like_(x)) * 10000
+    init = pe_like_initialize(pos, dist)
+    xy_max, _ = mx.maximize_conjugate_gradient(like_, 2, [ddx_like, ddy_like], init, iters=15,
+                                         onedimiters=5, onedimigap=50)
+    return xy_max
+
+def loss(x1, y1, x2, y2):
+    d = np.sqrt((x2 - x1) ** 2+ (y2 - y1)**2)
+    return calculate_path_loss(d)
+
+def like(x, y, losses, xi, yi):
+    return -np.sum(((losses - loss(x, y, xi, yi))**2)/(20/ np.log(10)))
+
+def pe_like_initialize(pos, dist):
+    # Finds the three nodes with smallest distances and trilaterates through them
+    min_ix1 = 0
+    if dist[1] < dist[0]:
+        min_ix1 = 1
+        min_ix2 = 0
+    else:
+        min_ix2 = 1
+    if dist[2] < dist[min_ix2]:
+        min_ix3 = min_ix2
+        if dist[2] < dist[min_ix1]:
+            min_ix2 = min_ix1
+            min_ix1 = 2
+        else:
+            min_ix2 = 2
+    else:
+        min_ix3 = 2
+    for i in range(3, len(dist)):
+        if dist[i] < dist[min_ix3]:
+            if dist[i] < dist[min_ix2]:
+                min_ix3 = min_ix2
+                if dist[i] < dist[min_ix1]:
+                    min_ix2 = min_ix1
+                    min_ix1 = i
+                else:
+                    min_ix2 = i
+            else:
+                min_ix3 = i
+    return trilaterate_simple(pos[min_ix1], pos[min_ix2], pos[min_ix3], dist[min_ix1], dist[min_ix2], dist[min_ix3])
+
 

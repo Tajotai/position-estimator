@@ -8,13 +8,13 @@ import matplotlib.pyplot as plt
 def main():
     sink = (0, 0)
     coordfixer = False
-    nodes = generate_nodes(20, 750)
+    nodes = generate_nodes(200, 750)
     if coordfixer:
         min = np.min([x[0]**2 + x[1]**2 for x in nodes])
         nodes = np.concatenate((nodes, np.array([((1/2)*np.sqrt(min), 0),
                                                  ((1/2)*np.sqrt(min), (1/2)*np.sqrt(min))], )), axis=0)
-    maxrange = 750
-    sigma = 0.8
+    maxrange = 1500
+    sigma = 2
     tx_pow = 100
     dist = distances(nodes)
     sinkdist = sinkdistances(nodes, sink)
@@ -124,8 +124,10 @@ def netEstimateRound(est, ready, dist, sinkdist, detect, sinkdet):
             if sinkdet[i]:
                 dist_i.append(sinkdist[i])
                 est_i.append((0, 0))
+            dist_i = np.array(dist_i)
+            est_i = np.array(est_i)
             if len(dist_i) >= 3:
-                newest[i] = pe.position_estimate(est_i, dist_i)
+                newest[i] = pe.position_estimate_like(est_i, dist_i)
                 newready.append(i)
     est = newest
     nr_added = copy.deepcopy(newready)
