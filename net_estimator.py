@@ -8,28 +8,32 @@ import matplotlib.pyplot as plt
 def main():
     sink = (0, 0)
     coordfixer = False
-    nodes = generate_nodes(20, 750)
+    half_netwidth = 1000
+    nodes = generate_nodes(25, half_netwidth)
     if coordfixer:
         min = np.min([x[0]**2 + x[1]**2 for x in nodes])
         nodes = np.concatenate((nodes, np.array([((1/2)*np.sqrt(min), 0),
                                                  ((1/2)*np.sqrt(min), (1/2)*np.sqrt(min))], )), axis=0)
-    maxrange = 750
+    maxrange = 5000
     sigma = 0.8
     tx_pow = 100
+    iters = 5
     dist = distances(nodes)
     sinkdist = sinkdistances(nodes, sink)
     dist_err = errorize(dist, sigma, tx_pow)
     sinkdist_err = errorize(sinkdist, sigma, tx_pow)
     net = []
     netOrganize(net, [], nodes.shape[0], dist, maxrange, sinkdist)
-    est, ref1, ref2 = net_estimate(dist_err, sinkdist_err, maxrange)
+    det, est, ref1, ref2 = net_estimate(dist_err, sinkdist_err, maxrange, iters=iters)
     fixed_est = fix_est(est, ref1, ref2, nodes[ref1], nodes[ref2])
+    location_errors = get_location_errors(nodes, fixed_est)
+    mean_location_error = np.average(location_errors)
     print("est :"+str(est))
     print("fixed_est: "+str(fixed_est) )
     print("original: "+str(nodes))
     print("error: "+str(fixed_est - nodes))
 
-    plot_pos(nodes, fixed_est)
+    plot_pos(nodes, fixed_est, mean_location_error, half_netwidth, detect=None)
 
 
 def generate_nodes(n, radius):
@@ -124,8 +128,10 @@ def netEstimateRound(est, ready, dist, sinkdist, detect, sinkdet):
             if sinkdet[i]:
                 dist_i.append(sinkdist[i])
                 est_i.append((0, 0))
+            dist_i = np.array(dist_i)
+            est_i = np.array(est_i)
             if len(dist_i) >= 3:
-                newest[i] = pe.position_estimate(est_i, dist_i)
+                newest[i] = pe.position_estimate_like(est_i, dist_i)
                 newready.append(i)
     est = newest
     nr_added = copy.deepcopy(newready)
@@ -187,7 +193,7 @@ def allReady(ready, num):
             return False
     return True
 
-def net_estimate(dist_err, sinkdist_err, rge):
+def net_estimate(dist_err, sinkdist_err, rge, iters = 20):
     det, sinkdet = detect(dist_err, sinkdist_err, rge)
     ref1, ref1_est = firstreference(sinkdist_err, sinkdet)
     ref2, ref2_est = secondreference(dist_err, det, sinkdist_err, sinkdet, ref1, ref1_est)
@@ -195,10 +201,16 @@ def net_estimate(dist_err, sinkdist_err, rge):
     ready = []
     update(est, ready, [ref1, ref2], [ref1_est, ref2_est])
     changed = True
+    #initialization
     while not allReady(ready, dist_err.shape[0]) and changed:
         est, ready, changed = netEstimateRound(est, ready, dist_err, sinkdist_err, det, sinkdet)
         print( "ready: "+str(ready))
-    return est, ref1, ref2
+    for i in range(iters):
+        ready = []
+        while not allReady(ready, dist_err.shape[0]) and changed:
+            est, ready, changed = netEstimateRound(est, ready, dist_err, sinkdist_err, det, sinkdet)
+
+    return det, est, ref1, ref2
 
 def fix_est(est, ref1, ref2, node1, node2):
     _, rot = exp.cart_to_polar(node1[0], node1[1])
@@ -221,7 +233,10 @@ def fix_est(est, ref1, ref2, node1, node2):
         derot[i] = (newx, newy)
     return derot
 
-def plot_pos(nodes, est):
+def get_location_errors(nodes, est):
+    return np.sqrt((nodes[:,0]- est[:,0]) ** 2 + (nodes[:,1]- est[:,1]) ** 2)
+
+def plot_pos(nodes, est, mean_location_error, halfwidth = 1000, detect = None):
     fig, ax = plt.subplots(figsize=(6,6),num="Node positions")
     colors = ['black','blue','red','green','brown','orange','gold','pink','cyan','lime']
     for ix, n in enumerate(nodes):
@@ -235,8 +250,16 @@ def plot_pos(nodes, est):
         # print(pos[p])
         plt.plot(n[0], n[1], label='', linestyle="None", marker='o', markersize=1, color='black', fillstyle='none')
         ax_est.annotate(text =str(ix), xy = [n[0], n[1]], color=colors[ix % len(colors)])
+        if detect is not None:
+            for ix2, n2 in enumerate(est):
+                if detect[ix, ix2]:
+                    plt.plot([n[0], n2[0]], [n[1], n2[1]], label='', linestyle="--", linewidth=0.1 , marker='o', markersize=1,
+                             color='black', fillstyle='none')
     ax.axis('equal')
     ax_est.axis('equal')
+
+    text_str = "Mean location error: "+str(mean_location_error)+" meters"
+    ax_est.set_xlabel(text_str)
     plt.pause(0)
 
 if __name__ == '__main__':

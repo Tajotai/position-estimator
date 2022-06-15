@@ -3,10 +3,6 @@ import random as rd
 import expect as exp
 import net_estimator as ne
 
-def power_attenuate(pow, dis, mu, beta):
-    # constant 173.491005787 is the wavelength in meters with f = 1.728 MHz
-    return pow - 2*10*np.log10(dis) - np.log10(4*np.pi*mu*beta/173.491005787)
-
 def ref_select(nodenrs, sinkdist):
     nr = len(nodenrs)
 

@@ -1,13 +1,18 @@
 import numpy as np
 import random as rd
 import expect as exp
+import maximize as mx
+
 def distance_bias_multiplier(sigma, gamma):
     return 10 ** (np.log(10) * (sigma ** 2)/(200 * (gamma ** 2)))
+
+def calculate_path_loss(dist):
+    return 2 * 10 * (np.log10(dist) + np.log10((4 * np.pi) / 0.0999308193333333))
 
 def distance_error_generate(r, sigma, tx_pow, bias=True):
     if r == 0:
         return 0
-    powdiff = 2*10*(np.log10(r) + np.log10((4 * np.pi) / 0.0999308193333333))
+    powdiff = calculate_path_loss(r)
     # powdiff = gamma*10*np.log10(dis/dis_0)
     powerror = np.random.normal(0, sigma)
     if bias:
@@ -111,96 +116,6 @@ def bilaterate(pos1, pos2, d1, d2):
             result = (x2 + d * (x1 - x2)/d3, y2 + d * (y1 - y2)/d3)
         return (result, result)
 
-def te_differentiate(pos1, pos2, d1, d2):
-    # something's wrong
-    x1 = pos1[0]
-    x2 = pos2[0]
-    y1 = pos1[1]
-    y2 = pos2[1]
-    d3 = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-    c = (d1**2 - d2**2 + (x1-x2)**2 + (y1-y2)**2)/(2*d1*d3)
-    p = d1 * c
-    h = np.sqrt(1 - c**2)*d1
-
-    dcdx1 = (x1 - x2) / (2 * d1 * d3) - c * d1 * (x1 - x2) / (2 * d3 ** 2)
-    dcdx2 = (x2 - x1) / (2 * d1 * d3) - c * d1 * (x2 - x1) / (2 * d3 ** 2)
-    dcdy1 = (y1 - y2) / (2 * d1 * d3) - c * d1 * (y1 - y2) / (2 * d3 ** 2)
-    dcdy2 = (y2 - y1) / (2 * d1 * d3) - c * d1 * (x2 - x1) / (2 * d3 ** 2)
-    dcdd1 = (-d1 - d3 * c) / (d1 * d3)
-    dcdd2 = - d2 / (d1 * d3)
-
-    first_dxdx1 = 1 - p/d3 + (x2 - x1)*(d1*dcdx1*d3-p*(x1 - x2)/d3)/(d3**2) \
-    + (y2 - y1)*(- c*dcdx1*d1*d3/(np.sqrt(1-c**2)) - h*(x1 - x2)/d3)/d3**2
-
-    first_dxdx2 = p/d3 + (x2 - x1)*(d1*dcdx2*d3-p*(x2 - x1)/d3)/(d3**2) \
-    + (y2 - y1)*(- c*dcdx2*d1*d3/(np.sqrt(1-c**2)) - h*(x2 - x1)/d3)/d3**2
-
-    first_dxdy1 =  (x2 - x1)*(d1*dcdy1*d3-p*(y1 - y2)/d3)/(d3**2) \
-    - h/d3  +(y2 - y1)*(- c*dcdy1*d1*d3/(np.sqrt(1-c**2)) - h*(y1 - y2)/d3)/d3**2
-
-    first_dxdy2 =  (x2 - x1)*(d1*dcdy2*d3-p*(y2 - y1)/d3)/(d3**2) \
-    + h/d3  +(y2 - y1)*(- c*dcdy2*d1*d3/(np.sqrt(1-c**2)) - h*(y2 - y1)/d3)/d3**2
-
-    first_dxdd1 = (x2 - x1)*(c + dcdd1*d1)/d3 + (y2 - y1)*(np.sqrt(1 - c**2) - c*dcdd1*d1/(np.sqrt(1-c**2)))
-
-    first_dxdd2 = (x2 - x1)*d1*(dcdd2)/d3 + (y2 - y1)*(- c*dcdd2*d1/(np.sqrt(1-c**2)))/d3
-
-
-    first_dydx1 = (y2 - y1)*(d1*dcdx1*d3-p*(x1 - x2)/d3)/(d3**2) \
-    + h/d3 + (x1 - x2)*(- c*dcdx1*d1*d3/(np.sqrt(1-c**2)) - h*(x1 - x2)/d3)/d3**2
-
-    first_dydx2 = (y2 - y1)*(d1*dcdx2*d3-p*(x2 - x1)/d3)/(d3**2) \
-    - h/d3 + (x1 - x2)*(- c*dcdx2*d1*d3/(np.sqrt(1-c**2)) - h*(x2 - x1)/d3)/d3**2
-
-    first_dydy1 = 1 - p/d3 + (y2 - y1)*(d1*dcdy1*d3-p*(y1 - y2)/d3)/(d3**2) \
-     +(x1 - x2)*(- c*dcdy1*d1*d3/(np.sqrt(1-c**2)) - h*(y1 - y2)/d3)/d3**2
-
-    first_dydy2 = p/d3 +(y2 - y1)*(d1*dcdy2*d3-p*(y2 - y1)/d3)/(d3**2) \
-     +(x1 - x2)*(- c*dcdy2*d1*d3/(np.sqrt(1-c**2)) - h*(y2 - y1)/d3)/d3**2
-
-    first_dydd1 = (y2 - y1)*(c + dcdd1*d1)/d3 + (x1 - x2)*(np.sqrt(1 - c**2) - c*dcdd1*d1/(np.sqrt(1-c**2)))
-
-    first_dydd2 = (y2 - y1)*d1*(dcdd2)/d3 + (x1 - x2)*(- c*dcdd2*d1/(np.sqrt(1-c**2)))/d3
-
-
-    second_dxdx1 = 1 - p/d3 + (x2 - x1)*(d1*dcdx1*d3-p*(x1 - x2)/d3)/(d3**2) \
-    - (y2 - y1)*(- c*dcdx1*d1*d3/(np.sqrt(1-c**2)) - h*(x1 - x2)/d3)/d3**2
-
-    second_dxdx2 = p/d3 + (x2 - x1)*(d1*dcdx2*d3-p*(x2 - x1)/d3)/(d3**2) \
-    - (y2 - y1)*(- c*dcdx2*d1*d3/(np.sqrt(1-c**2)) - h*(x2 - x1)/d3)/d3**2
-
-    second_dxdy1 =  (x2 - x1)*(d1*dcdy1*d3-p*(y1 - y2)/d3)/(d3**2) \
-    + h/d3  -(y2 - y1)*(- c*dcdy1*d1*d3/(np.sqrt(1-c**2)) - h*(y1 - y2)/d3)/d3**2
-
-    second_dxdy2 =  (x2 - x1)*(d1*dcdy2*d3-p*(y2 - y1)/d3)/(d3**2) \
-    - h/d3  -(y2 - y1)*(- c*dcdy2*d1*d3/(np.sqrt(1-c**2)) - h*(y2 - y1)/d3)/d3**2
-
-    second_dxdd1 = (x2 - x1)*(c + dcdd1*d1)/d3 - (y2 - y1)*(np.sqrt(1 - c**2) - c*dcdd1*d1/(np.sqrt(1-c**2)))
-
-    second_dxdd2 = (x2 - x1)*d1*(dcdd2)/d3 - (y2 - y1)*(- c*dcdd2*d1/(np.sqrt(1-c**2)))/d3
-
-
-    second_dydx1 = (y2 - y1)*(d1*dcdx1*d3-p*(x1 - x2)/d3)/(d3**2) \
-    - h/d3 - (x1 - x2)*(- c*dcdx1*d1*d3/(np.sqrt(1-c**2)) - h*(x1 - x2)/d3)/d3**2
-
-    second_dydx2 = (y2 - y1)*(d1*dcdx2*d3-p*(x2 - x1)/d3)/(d3**2) \
-    + h/d3 - (x1 - x2)*(- c*dcdx2*d1*d3/(np.sqrt(1-c**2)) - h*(x2 - x1)/d3)/d3**2
-
-    second_dydy1 = 1 - p/d3 + (y2 - y1)*(d1*dcdy1*d3-p*(y1 - y2)/d3)/(d3**2) \
-     -(x1 - x2)*(- c*dcdy1*d1*d3/(np.sqrt(1-c**2)) - h*(y1 - y2)/d3)/d3**2
-
-    second_dydy2 = p/d3 +(y2 - y1)*(d1*dcdy2*d3-p*(y2 - y1)/d3)/(d3**2) \
-     -(x1 - x2)*(- c*dcdy2*d1*d3/(np.sqrt(1-c**2)) - h*(y2 - y1)/d3)/d3**2
-
-    second_dydd1 = (y2 - y1)*(c + dcdd1*d1)/d3 - (x1 - x2)*(np.sqrt(1 - c**2) - c*dcdd1*d1/(np.sqrt(1-c**2)))
-
-    second_dydd2 = (y2 - y1)*d1*(dcdd2)/d3 - (x1 - x2)*(- c*dcdd2*d1/(np.sqrt(1-c**2)))/d3
-
-    return (((first_dxdx1, first_dxdx2, first_dxdy1, first_dxdy2, first_dxdd1, first_dxdd2),
-            (first_dydx1, first_dydx2, first_dydy1, first_dydy2, first_dydd1, first_dydd2)),
-            ((second_dxdx1, second_dxdx2, second_dxdy1, second_dxdy2, second_dxdd1, second_dxdd2),
-            (second_dydx1, second_dydx2, second_dydy1, second_dydy2, second_dydd1, second_dydd2)))
-
 def find_ix(pair1, pair2, pair3):
     minvar = None
     ix = None
@@ -243,7 +158,7 @@ def trilaterate_simple(pos1, pos2, pos3, d1, d2, d3):
     est1 = pair1[ix[0]]
     est2 = pair2[ix[1]]
     est3 = pair3[ix[2]]
-    return ((est1[0] + est2[0] + est3[0]) / 3, (est1[1] + est2[1] + est3[1]) / 3)
+    return np.array([(est1[0] + est2[0] + est3[0]) / 3, (est1[1] + est2[1] + est3[1]) / 3])
 
 def position_estimate(pos, dist):
     length = len(pos)
@@ -276,4 +191,54 @@ def position_estimate_two(p0, p1, d0, d1):
 def position_estimate_one(pos, dist):
     r, theta = exp.cart_to_polar(pos)
     return ((r + dist) / r) * pos
+
+def position_estimate_like(pos, dist):
+    losses = calculate_path_loss(dist)
+    xi = pos[:, 0]
+    yi = pos[:, 1]
+    like_ = lambda x: like(x[0], x[1], losses, xi, yi)
+    ddx_like = lambda x: (like_(np.array([x[0] + 0.0001, x[1]])) - like_(x)) * 10000
+    ddy_like = lambda x: (like_(np.array([x[0], x[1] + 0.0001])) - like_(x)) * 10000
+    init = pe_like_initialize(pos, dist)
+    xy_max, _ = mx.maximize_conjugate_gradient(like_, 2, [ddx_like, ddy_like], init, iters=15,
+                                         onedimiters=5, onedimigap=50)
+    return xy_max
+
+def loss(x1, y1, x2, y2):
+    d = np.sqrt((x2 - x1) ** 2+ (y2 - y1)**2)
+    return calculate_path_loss(d)
+
+def like(x, y, losses, xi, yi):
+    return -np.sum(((losses - loss(x, y, xi, yi))**2)/(20/ np.log(10)))
+
+def pe_like_initialize(pos, dist):
+    # Finds the three nodes with smallest distances and trilaterates through them
+    min_ix1 = 0
+    if dist[1] < dist[0]:
+        min_ix1 = 1
+        min_ix2 = 0
+    else:
+        min_ix2 = 1
+    if dist[2] < dist[min_ix2]:
+        min_ix3 = min_ix2
+        if dist[2] < dist[min_ix1]:
+            min_ix2 = min_ix1
+            min_ix1 = 2
+        else:
+            min_ix2 = 2
+    else:
+        min_ix3 = 2
+    for i in range(3, len(dist)):
+        if dist[i] < dist[min_ix3]:
+            if dist[i] < dist[min_ix2]:
+                min_ix3 = min_ix2
+                if dist[i] < dist[min_ix1]:
+                    min_ix2 = min_ix1
+                    min_ix1 = i
+                else:
+                    min_ix2 = i
+            else:
+                min_ix3 = i
+    return trilaterate_simple(pos[min_ix1], pos[min_ix2], pos[min_ix3], dist[min_ix1], dist[min_ix2], dist[min_ix3])
+
 
