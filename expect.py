@@ -13,10 +13,8 @@ def cart_to_polar(x, y):
         r = np.sqrt(x**2+y**2)
         if x == 0 and y == 0:
             theta = np.nan
-        elif x == 0:
-            theta = (1-np.sign(y)/2)*np.pi
         else:
-            theta = (np.arctan(y/x) + ((1-np.sign(x))/2)*np.pi) % (2*np.pi)
+            theta = np.arctan2(y, x)
         return r, theta
     else:
         if x.shape != y.shape:

@@ -201,7 +201,7 @@ def position_estimate_like(pos, dist):
     ddy_like = lambda x: (like_(np.array([x[0], x[1] + 0.0001])) - like_(x)) * 10000
     init = pe_like_initialize(pos, dist)
     xy_max, _ = mx.maximize_conjugate_gradient(like_, 2, [ddx_like, ddy_like], init, iters=15,
-                                         onedimiters=5, onedimigap=50)
+                                         onedimiters=5, onedimigap=500)
     return xy_max
 
 def loss(x1, y1, x2, y2):

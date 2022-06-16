@@ -28,8 +28,9 @@ def maximize_conjugate_gradient(function, dim, partial_diffs, init, iters=10, on
         fdiff = np.abs(fP - fret)
         if 2 * fdiff <= tol * (np.abs(fP) + np.abs(fret) + 0.000000001) and i != 0:
             return P, fP
-        fP = fret
-        P = P + min_x * h
+        if fret >= fP:
+            fP = fret
+            P = P + min_x * h
         g_next = - grad(P, partial_diffs)
         gamma = np.vdot(g_next - g, g_next) / np.vdot(g, g)
         h = g_next + gamma * h
