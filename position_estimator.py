@@ -171,11 +171,19 @@ def position_estimate(pos, dist):
             #length == 0
             return (0, 0, 0)
     else:
+        if length > 6:
+            min_ix = find_min(dist, 6)
+            min_ix = np.array(min_ix, dtype=int)
+            trimpos = pos[min_ix]
+            trimdist = dist[min_ix]
+        else:
+            trimpos = pos
+            trimdist = dist
         trila = []
-        for i in range(len(pos)):
-            for j in range(i + 1, len(pos)):
-                for k in range(j + 1, len(pos)):
-                    trila.append(trilaterate_simple(pos[i], pos[j], pos[k], dist[i], dist[j], dist[k]))
+        for i in range(len(trimpos)):
+            for j in range(i + 1, len(trimpos)):
+                for k in range(j + 1, len(trimpos)):
+                    trila.append(trilaterate_simple(trimpos[i], trimpos[j], trimpos[k], trimdist[i], trimdist[j], trimdist[k]))
         trila_np = np.array(trila)
         return np.average(trila_np, axis=0)
 
@@ -211,34 +219,37 @@ def loss(x1, y1, x2, y2):
 def like(x, y, losses, xi, yi):
     return -np.sum(((losses - loss(x, y, xi, yi))**2)/(20/ np.log(10)))
 
+def find_min(array, number_of_mins):
+    min_ix = np.zeros(number_of_mins) - 1
+    items = np.zeros(number_of_mins)
+    for i in range(len(array)):
+        item = array[i]
+        if i == 0:
+            items[0] = item
+            min_ix[0] = 0
+            continue
+        maxj = min(i - 1, number_of_mins - 1)
+        for j in range(maxj, -1, -1):
+            if item < items[j] or min_ix[j] == -1:
+                if j < number_of_mins - 1:
+                    min_ix[j + 1] = min_ix[j]
+                    items[j + 1] = items[j]
+                    if j == 0:
+                        min_ix[0] = i
+                        items[0] = item
+            else:
+                if j < number_of_mins - 1:
+                    min_ix[j + 1] = i
+                    items[j + 1] = item
+                break
+    return min_ix
+
 def pe_like_initialize(pos, dist):
     # Finds the three nodes with smallest distances and trilaterates through them
-    min_ix1 = 0
-    if dist[1] < dist[0]:
-        min_ix1 = 1
-        min_ix2 = 0
-    else:
-        min_ix2 = 1
-    if dist[2] < dist[min_ix2]:
-        min_ix3 = min_ix2
-        if dist[2] < dist[min_ix1]:
-            min_ix2 = min_ix1
-            min_ix1 = 2
-        else:
-            min_ix2 = 2
-    else:
-        min_ix3 = 2
-    for i in range(3, len(dist)):
-        if dist[i] < dist[min_ix3]:
-            if dist[i] < dist[min_ix2]:
-                min_ix3 = min_ix2
-                if dist[i] < dist[min_ix1]:
-                    min_ix2 = min_ix1
-                    min_ix1 = i
-                else:
-                    min_ix2 = i
-            else:
-                min_ix3 = i
+    min_ix = find_min(dist, 3)
+    min_ix1 = int(min_ix[0])
+    min_ix2 = int(min_ix[1])
+    min_ix3 = int(min_ix[2])
     return trilaterate_simple(pos[min_ix1], pos[min_ix2], pos[min_ix3], dist[min_ix1], dist[min_ix2], dist[min_ix3])
 
 

@@ -35,7 +35,7 @@ def maximize_conjugate_gradient(function, dim, partial_diffs, init, iters=10, on
         gamma = np.vdot(g_next - g, g_next) / np.vdot(g, g)
         h = g_next + gamma * h
         g = g_next
-    print("Warning! Max iters reached in conjugate gradient.")
+    # print("Warning! Max iters reached in conjugate gradient.")
     return P, function(P)
 
 def grad(x, partial_diffs):
@@ -81,7 +81,7 @@ def maximize_one_dim_brent(function, init, iters, initgap = 20, tol = 0.0001):
         u = x + d if np.abs(d) >= tol1 else x + tol1*np.sign(d)
         fu = function(u) # The only function evaluation in an iter
         a, b, x, v, w, fx, fv, fw = update_brent(a, b, x, u, v, w, fx, fu, fv, fw)
-    print("Warning! Maximum iters reached in Brent.")
+    # print("Warning! Maximum iters reached in Brent.")
     return x, fx
 
 

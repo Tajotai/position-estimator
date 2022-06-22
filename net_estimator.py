@@ -9,8 +9,8 @@ def main():
     sink = (0, 0)
     coordfixer = False
     static = False
-    half_netwidth = 1000
-    nodes = generate_nodes(50, half_netwidth)
+    half_netwidth = 2500
+    nodes = generate_nodes(1000, half_netwidth)
     if coordfixer:
         min = np.min([x[0]**2 + x[1]**2 for x in nodes])
         nodes = np.concatenate((nodes, np.array([((1/2)*np.sqrt(min), 0),
@@ -21,20 +21,20 @@ def main():
         #                  [-328.,  987.],[-388.,  601.],[-524., -551.],[ 978.,  538.],[ 794., -251.],[-498., -907.],
         #                  [ 101.,  658.], [ 586.,  435.],[-281.,  526.],[ 582., -730.],[-547.,   29.],[ 445., -507.],
         #                  [-578.,  501.],[ 273.88409957,    0.],[ 273.88409957,  273.88409957]])
-        nodes = np.array([[-547., -809.],[-217., -771.],[ 472., -464.], [-206.,  575.],[ 169.,  482.],[-150., -323.],
-                          [ 375., -449.],[  61.,  614.],[ 848., -928.], [-5.,  500.], [-989., -785.], [-978., -343.],
-                          [952.,  270.], [ 793., -639.], [ 679., -271.], [-917., -178.], [-929.,  861.],[744., -756.],
-                            [-602.,   60.], [1.,  120.], [-192., -355.], [ 226., -200.], [ 443.,  888.],
-                         [ -41., -861.], [ 327., -652.], [ 267.,  534.], [-797.,  694.], [ 612., -461.], [-206., -238.],
-                         [-358.,   28.], [ 637., -620.], [ 761., -691.], [-638.,  320.], [-770., -582.], [-622.,  585.],
-                         [ 744.,  481.], [ 476.,  279.], [ 215.,  761.], [ 819., -874.], [-998.,  866.], [-767., -444.],
-                         [-532.,  101.], [-638.,  997.], [ 473., -717.], [-940., -954.], [ 972.,  711.], [ 473.,  195.],
-                         [ -77.,  329.], [-418.,  363.], [ 529.,  769.]])
+        nodes = np.array([[-547., -809.],[-217., -771.],[472., -464.], [-206.,  575.],[169.,  482.],[-150., -323.],
+                          [375., -449.],[ 61.,  614.],[848., -928.], [-5.,  500.], [-989., -785.], [-978., -343.],
+                          [952.,  270.], [793., -639.], [679., -271.], [-917., -178.], [-929.,  861.],[744., -756.],
+                            [-602.,   60.], [1.,  120.], [-192., -355.], [226., -200.], [443.,  888.],
+                         [-41., -861.], [327., -652.], [267.,  534.], [-797.,  694.], [612., -461.], [-206., -238.],
+                         [-358.,   28.], [637., -620.], [761., -691.], [-638.,  320.], [-770., -582.], [-622.,  585.],
+                         [744.,  481.], [476.,  279.], [215.,  761.], [819., -874.], [-998.,  866.], [-767., -444.],
+                         [-532.,  101.], [-638.,  997.], [473., -717.], [-940., -954.], [972.,  711.], [473.,  195.],
+                         [-77.,  329.], [-418.,  363.], [529.,  769.]])
 
-    maxrange = 5000
-    sigma = 1
+    maxrange = 100000
+    sigma = 10
     tx_pow = 100
-    iters = 20
+    iters = 50
     dist = distances(nodes)
     sinkdist = sinkdistances(nodes, sink)
     dist_err = errorize(dist, sigma, tx_pow)
@@ -42,15 +42,16 @@ def main():
     net = []
     netOrganize(net, [], nodes.shape[0], dist, maxrange, sinkdist)
     det, est, ref1, ref2 = net_estimate(dist_err, sinkdist_err, maxrange, iters=iters, nodes=None)
-    fixed_est = fix_est2(est, nodes, ref1, ref2)
+    fixed_est = fix_est4(est, nodes, ref1, ref2)
     location_errors = get_location_errors(nodes, fixed_est)
     mean_location_error = np.average(location_errors)
-    print("est :"+str(est))
-    print("fixed_est: "+str(fixed_est) )
-    print("original: "+str(nodes))
-    print("error: "+str(fixed_est - nodes))
 
-    plot_pos(nodes, fixed_est, mean_location_error, half_netwidth, detect=None)
+    print("est :"+str(est))
+    print("fixed_est: "+str(fixed_est))
+    print("original: "+str(nodes))
+    #print("error: "+str(fixed_est - nodes))
+
+    plot_pos(nodes, fixed_est3, mean_location_error, half_netwidth, detect=None)
 
 
 def generate_nodes(n, radius):
@@ -148,7 +149,7 @@ def netEstimateRound(est, ready, dist, sinkdist, detect, sinkdet, initial=False)
             dist_i = np.array(dist_i)
             est_i = np.array(est_i)
             if len(dist_i) >= 3:
-                newest[i] = pe.position_estimate(est_i, dist_i)
+                newest[i] = pe.position_estimate_like(est_i, dist_i)
                 newready.append(i)
     est = newest
     nr_added = copy.deepcopy(newready)
@@ -271,6 +272,58 @@ def fix_est2(est, nodes, ref1, ref2):
         derot[i] = np.array([newx, newy])
     return derot
 
+def fix_est3(est, nodes, tol = 0.0001):
+    min_rot = second_rot = 0
+    min_err = second_err = np.average(get_location_errors(nodes, est))
+    for i in range(1, 4):
+        rot = i * np.pi / 2
+        newest = rotate_graph(est, rot)
+        err = np.average(get_location_errors(nodes, newest))
+        if err < min_err:
+            second_rot = min_rot
+            second_err = min_err
+            min_rot = rot
+            min_err = err
+        else:
+            if second_rot < min_rot:
+                second_rot = rot
+                second_err = err
+    while np.abs(min_rot - second_rot) < tol:
+        rot_lo = min(min_rot, second_rot)
+        rot_hi = max(min_rot, second_rot)
+        rot = (rot_hi - rot_lo) / 2
+        newest = rotate_graph(est, rot)
+        err = np.average(get_location_errors(nodes, newest))
+        if err < min_err:
+            second_rot = min_rot
+            second_err = min_err
+            min_rot = rot
+            min_err = err
+        else:
+            second_rot = rot
+            second_err = err
+    return rotate_graph(est, min_rot)
+
+def fix_est4(est, nodes, ref1, ref2):
+    rhest = get_righthand(est, nodes, ref1, ref2)
+    min_rot = 0
+    min_err = np.average(get_location_errors(nodes, rhest))
+    for rot in np.arange(0.0, 2 * np.pi, 0.01):
+        newest = rotate_graph(rhest, rot)
+        err = np.average(get_location_errors(nodes, newest))
+        if err < min_err:
+            min_rot = rot
+            min_err = err
+    return rotate_graph(rhest, min_rot)
+
+def rotate_graph(graph, rot):
+    derot = np.zeros(graph.shape)
+    for i, x in enumerate(graph):
+        r, theta = exp.cart_to_polar(x[0], x[1])
+        newx, newy = exp.polar_to_cart(r, theta + rot)
+        derot[i] = np.array([newx, newy])
+    return derot
+
 def get_righthand(est, nodes, ref1, ref2):
     node1 = nodes[ref1]
     node2 = nodes[ref2]
@@ -344,7 +397,7 @@ def plot_pos(nodes, est, mean_location_error, halfwidth = 1000, detect = None):
 
     text_str = "Mean location error: "+str(mean_location_error)+" meters"
     ax_est.set_xlabel(text_str)
-    plt.pause(0)
+    plt.show()
 
 if __name__ == '__main__':
     main()
