@@ -200,14 +200,19 @@ def position_estimate_one(pos, dist):
     r, theta = exp.cart_to_polar(pos)
     return ((r + dist) / r) * pos
 
-def position_estimate_like(pos, dist):
+def position_estimate_like(pos_det, dist, pos_miss=None, maxrange = np.inf):
     losses = calculate_path_loss(dist)
-    xi = pos[:, 0]
-    yi = pos[:, 1]
-    like_ = lambda x: like(x[0], x[1], losses, xi, yi)
+    xi = pos_det[:, 0]
+    yi = pos_det[:, 1]
+    xi_miss = None
+    yi_miss = None
+    if pos_miss is not None and pos_miss.shape[0] != 0:
+        xi_miss = pos_miss[:, 0]
+        yi_miss = pos_miss[:, 1]
+    like_ = lambda x: like(x[0], x[1], losses, xi, yi, xi_miss, yi_miss, maxrange)
     ddx_like = lambda x: (like_(np.array([x[0] + 0.0001, x[1]])) - like_(x)) * 10000
     ddy_like = lambda x: (like_(np.array([x[0], x[1] + 0.0001])) - like_(x)) * 10000
-    init = pe_like_initialize(pos, dist)
+    init = pe_like_initialize(pos_det, dist)
     xy_max, _ = mx.maximize_conjugate_gradient(like_, 2, [ddx_like, ddy_like], init, iters=15,
                                          onedimiters=5, onedimigap=500)
     return xy_max
@@ -216,8 +221,15 @@ def loss(x1, y1, x2, y2):
     d = np.sqrt((x2 - x1) ** 2+ (y2 - y1)**2)
     return calculate_path_loss(d)
 
-def like(x, y, losses, xi, yi):
-    return -np.sum(((losses - loss(x, y, xi, yi))**2)/(20/ np.log(10)))
+def like(x, y, losses, xi, yi, x_miss=None, y_miss=None, maxrange = np.inf):
+    det = -np.sum(((losses - loss(x, y, xi, yi))**2)/(20/ np.log(10)))
+    nondet = 0 if (x_miss is None) else np.sum(logPhi_approx(x, y, x_miss, y_miss, maxrange))
+    return det + nondet
+
+def logPhi_approx(x, y, x_m, y_m, maxrange, sigma=1):
+    pathloss = loss(x, y, x_m, y_m)
+    thresh_loss = calculate_path_loss(maxrange)
+    return 2 * np.min(np.array([(thresh_loss - pathloss)/np.sqrt(np.pi), np.zeros(x_m.shape[0]) + np.log(2)]), axis=0)
 
 def find_min(array, number_of_mins):
     min_ix = np.zeros(number_of_mins) - 1

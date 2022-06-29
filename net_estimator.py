@@ -9,8 +9,8 @@ def main():
     sink = (0, 0)
     coordfixer = False
     static = False
-    half_netwidth = 2500
-    nodes = generate_nodes(1000, half_netwidth)
+    half_netwidth = 1000
+    nodes = generate_nodes(500, half_netwidth)
     if coordfixer:
         min = np.min([x[0]**2 + x[1]**2 for x in nodes])
         nodes = np.concatenate((nodes, np.array([((1/2)*np.sqrt(min), 0),
@@ -31,10 +31,10 @@ def main():
                          [-532.,  101.], [-638.,  997.], [473., -717.], [-940., -954.], [972.,  711.], [473.,  195.],
                          [-77.,  329.], [-418.,  363.], [529.,  769.]])
 
-    maxrange = 100000
-    sigma = 10
+    maxrange = 1000
+    sigma = 1
     tx_pow = 100
-    iters = 50
+    iters = 500
     dist = distances(nodes)
     sinkdist = sinkdistances(nodes, sink)
     dist_err = errorize(dist, sigma, tx_pow)
@@ -51,7 +51,7 @@ def main():
     print("original: "+str(nodes))
     #print("error: "+str(fixed_est - nodes))
 
-    plot_pos(nodes, fixed_est3, mean_location_error, half_netwidth, detect=None)
+    plot_pos(nodes, fixed_est, mean_location_error, half_netwidth, detect=None)
 
 
 def generate_nodes(n, radius):
@@ -139,17 +139,22 @@ def netEstimateRound(est, ready, dist, sinkdist, detect, sinkdet, initial=False)
         if i not in ready:
             dist_i = []
             est_i = []
+            miss_i = []
             for j in range(sinkdist.shape[0]):
-                if (j in ready or not initial) and detect[j, i] and (j != i):
-                    dist_i.append(dist[j, i])
-                    est_i.append(est[j])
+                if (j in ready or not initial) and (j != i):
+                    if detect[j, i]:
+                        dist_i.append(dist[j, i])
+                        est_i.append(est[j])
+                    else:
+                        miss_i.append(est[j])
             if sinkdet[i]:
                 dist_i.append(sinkdist[i])
                 est_i.append((0, 0))
             dist_i = np.array(dist_i)
             est_i = np.array(est_i)
+            miss_i = np.array(miss_i)
             if len(dist_i) >= 3:
-                newest[i] = pe.position_estimate_like(est_i, dist_i)
+                newest[i] = pe.position_estimate_like(est_i, dist_i, pos_miss=miss_i)
                 newready.append(i)
     est = newest
     nr_added = copy.deepcopy(newready)
