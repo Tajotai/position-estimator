@@ -3,14 +3,15 @@ import random as rd
 import position_estimator as pe
 import expect as exp
 import copy
+import matplotlib.markers as mrks
 import matplotlib.pyplot as plt
 
 def main():
-    sink = (0, 0)
+    sink_ix = 0
     coordfixer = False
     static = False
     half_netwidth = 1000
-    nodes = generate_nodes(500, half_netwidth)
+    nodes = generate_nodes(200, half_netwidth)
     if coordfixer:
         min = np.min([x[0]**2 + x[1]**2 for x in nodes])
         nodes = np.concatenate((nodes, np.array([((1/2)*np.sqrt(min), 0),
@@ -31,17 +32,19 @@ def main():
                          [-532.,  101.], [-638.,  997.], [473., -717.], [-940., -954.], [972.,  711.], [473.,  195.],
                          [-77.,  329.], [-418.,  363.], [529.,  769.]])
 
-    maxrange = 1000
+    maxrange = 100
     sigma = 1
     tx_pow = 100
-    iters = 500
+    iters = 100
     dist = distances(nodes)
-    sinkdist = sinkdistances(nodes, sink)
+    # sinkdist = sinkdistances(nodes, sink)
     dist_err = errorize(dist, sigma, tx_pow)
-    sinkdist_err = errorize(sinkdist, sigma, tx_pow)
+    # sinkdist_err = errorize(sinkdist, sigma, tx_pow)
+    # totaldist = np.concatenate((dist, sinkdist))
+    # totaldist_err = np.concatenate((dist_err, sinkdist_err))
     net = []
-    netOrganize(net, [], nodes.shape[0], dist, maxrange, sinkdist)
-    det, est, ref1, ref2 = net_estimate(dist_err, sinkdist_err, maxrange, iters=iters, nodes=None)
+    # netOrganize(net, [], nodes.shape[0], dist, maxrange, sinkdist)
+    det, est, ref1, ref2 = net_estimate(dist_err, maxrange, iters=iters, nodes=None)
     fixed_est = fix_est4(est, nodes, ref1, ref2)
     location_errors = get_location_errors(nodes, fixed_est)
     mean_location_error = np.average(location_errors)
@@ -132,24 +135,24 @@ def netFull(net, nodes):
         found[e[1]] = 1
     return (found == 1).all()
 
-def netEstimateRound(est, ready, dist, sinkdist, detect, sinkdet, initial=False):
+def netEstimateRound(est, ready, dist, detect, sinkdist=None, sinkdet=None, initial=False):
     newest = copy.deepcopy(est)
     newready = copy.deepcopy(ready)
-    for i in range(sinkdist.shape[0]):
+    for i in range(dist.shape[0]):
         if i not in ready:
             dist_i = []
             est_i = []
             miss_i = []
-            for j in range(sinkdist.shape[0]):
+            for j in range(dist.shape[0]):
                 if (j in ready or not initial) and (j != i):
                     if detect[j, i]:
                         dist_i.append(dist[j, i])
                         est_i.append(est[j])
                     else:
                         miss_i.append(est[j])
-            if sinkdet[i]:
-                dist_i.append(sinkdist[i])
-                est_i.append((0, 0))
+            # if sinkdet[i]:
+            #    dist_i.append(sinkdist[i])
+            #    est_i.append((0, 0))
             dist_i = np.array(dist_i)
             est_i = np.array(est_i)
             miss_i = np.array(miss_i)
@@ -177,16 +180,18 @@ def detect(dist, sinkdist, rge):
     return det, sinkdet
 
 
-def firstreference(sinkdist, sinkdet):
+def firstreference(sinkdist, sinkdet, sink_ix=0):
     min_ix = 0
+    if sink_ix == 0:
+        min_ix = 1
     for i in range(sinkdist.shape[0]):
-        if sinkdet[i] and sinkdist[i] < sinkdist[min_ix]:
+        if sinkdet[i] and sinkdist[i] < sinkdist[min_ix] and i != sink_ix:
             min_ix = i
     return min_ix, (sinkdist[min_ix], 0)
 
-def secondreference(dist, det, sinkdist, sinkdet, ref1, ref1_est):
+def secondreference(dist, det, sinkdist, sinkdet, ref1, ref1_est, sink_ix = 0):
     min_ix = -1
-    nok = [ref1]
+    nok = [ref1, sink_ix]
     found = False
     while len(nok) < len(sinkdist) and not found:
         for i in range(sinkdist.shape[0]):
@@ -218,23 +223,28 @@ def allReady(ready, num, required=None):
             return False
     return True
 
-def net_estimate(dist_err, sinkdist_err, rge, iters = 20, nodes=None):
+def net_estimate(dist_err, rge, iters = 20, sinkdist_err = None, nodes=None, sink_ix = 0):
+    if sinkdist_err == None:
+        sinkdist_err = dist_err[sink_ix, :]
+
     det, sinkdet = detect(dist_err, sinkdist_err, rge)
     ref1, ref1_est = firstreference(sinkdist_err, sinkdet)
     ref2, ref2_est = secondreference(dist_err, det, sinkdist_err, sinkdet, ref1, ref1_est)
     est = np.zeros((sinkdist_err.shape[0], 2))
     ready = []
-    update(est, ready, [ref1, ref2], [ref1_est, ref2_est])
+    update(est, ready, [sink_ix, ref1, ref2], [(0, 0), ref1_est, ref2_est])
     changed = True
     #initialization
     while not allReady(ready, dist_err.shape[0]) and changed:
-        est, ready, changed = netEstimateRound(est, ready, dist_err, sinkdist_err, det, sinkdet, initial=True)
+        # est, ready, changed = netEstimateRound(est, ready, dist_err, det, sinkdist_err, sinkdet, initial=True)
+        est, ready, changed = netEstimateRound(est, ready, dist_err, det, initial=True)
         print( "ready: "+str(ready))
     for i in range(iters - 1):
         print("iteration number:"+str(i))
         iter_ready = []
         while not allReady(iter_ready, dist_err.shape[0], required=ready):
-            est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, sinkdist_err, det, sinkdet)
+            # est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det, sinkdist_err, sinkdet)
+            est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det)
         if nodes is not None:
             fixed_est = fix_est(est, ref1, ref2, nodes[ref1], nodes[ref2])
             location_errors = get_location_errors(nodes, fixed_est)
@@ -309,27 +319,38 @@ def fix_est3(est, nodes, tol = 0.0001):
             second_err = err
     return rotate_graph(est, min_rot)
 
-def fix_est4(est, nodes, ref1, ref2):
-    rhest = get_righthand(est, nodes, ref1, ref2)
+def fix_est4(est, nodes, ref1, ref2, sink_ix=0):
+    est_orig = sink_correct(sink_ix, est)
+    nodes_orig = sink_correct(sink_ix, nodes)
+    rhest = get_righthand(est_orig, nodes_orig, ref1, ref2)
     min_rot = 0
-    min_err = np.average(get_location_errors(nodes, rhest))
+    min_err = np.average(get_location_errors(nodes_orig, rhest))
     for rot in np.arange(0.0, 2 * np.pi, 0.01):
         newest = rotate_graph(rhest, rot)
-        err = np.average(get_location_errors(nodes, newest))
+        err = np.average(get_location_errors(nodes_orig, newest))
         if err < min_err:
             min_rot = rot
             min_err = err
-    return rotate_graph(rhest, min_rot)
+    rotd = rotate_graph(rhest, min_rot)
+    return rotd + nodes[sink_ix]
+
+def sink_correct(sink_ix, graph):
+    sink = graph[sink_ix]
+    newgraph = graph - sink
+    return newgraph
 
 def rotate_graph(graph, rot):
     derot = np.zeros(graph.shape)
     for i, x in enumerate(graph):
         r, theta = exp.cart_to_polar(x[0], x[1])
-        newx, newy = exp.polar_to_cart(r, theta + rot)
+        if r == 0 or theta == np.nan:
+            newx, newy = (0, 0)
+        else:
+            newx, newy = exp.polar_to_cart(r, theta + rot)
         derot[i] = np.array([newx, newy])
     return derot
 
-def get_righthand(est, nodes, ref1, ref2):
+def get_righthand(est, nodes, ref1, ref2, sink_ix=0):
     node1 = nodes[ref1]
     node2 = nodes[ref2]
     righthand = np.zeros(est.shape)
@@ -340,12 +361,13 @@ def get_righthand(est, nodes, ref1, ref2):
     esthand = np.zeros((est.shape[0], est.shape[0]))
     for i in range(est.shape[0]):
         for j in range(i + 1, est.shape[0]):
-            theta1 = (exp.cart_to_polar(nodes[j,0], nodes[j,1])[1] -
-                      exp.cart_to_polar(nodes[i,0], nodes[i,1])[1]) % (2 * np.pi)
-            nodehand[i, j] = 1 if theta1 < np.pi else -1
-            theta2 = (exp.cart_to_polar(est[j, 0], est[j, 1])[1] -
-                      exp.cart_to_polar(est[i, 0], est[i, 1])[1]) % (2 * np.pi)
-            esthand[i, j] = 1 if theta2 < np.pi else -1
+            if i != sink_ix and j != sink_ix:
+                theta1 = (exp.cart_to_polar(nodes[j,0], nodes[j,1])[1] -
+                          exp.cart_to_polar(nodes[i,0], nodes[i,1])[1]) % (2 * np.pi)
+                nodehand[i, j] = 1 if theta1 < np.pi else -1
+                theta2 = (exp.cart_to_polar(est[j, 0], est[j, 1])[1] -
+                          exp.cart_to_polar(est[i, 0], est[i, 1])[1]) % (2 * np.pi)
+                esthand[i, j] = 1 if theta2 < np.pi else -1
     handparities = nodehand * esthand
     handsum = np.sum(handparities)
     if handsum < 0:
@@ -381,16 +403,17 @@ def get_location_errors(nodes, est):
 def plot_pos(nodes, est, mean_location_error, halfwidth = 1000, detect = None):
     fig, ax = plt.subplots(figsize=(6,6),num="Node positions")
     colors = ['black','blue','red','green','brown','orange','gold','pink','cyan','lime']
+    mark = mrks.MarkerStyle('o', 'full')
     for ix, n in enumerate(nodes):
         # print(pos[p])
-        plt.plot(n[0], n[1], label='', linestyle="None", marker='o', markersize=1, color='black', fillstyle='none')
+        plt.plot(n[0], n[1], label='', linestyle="None", marker=mark, markersize=3, color='black', fillstyle='none')
         ax.annotate(text =str(ix), xy = [n[0], n[1]], color=colors[ix % len(colors)])
 
 
     fig_est, ax_est = plt.subplots(figsize=(6, 6), num="Estimated positions")
     for ix, n in enumerate(est):
         # print(pos[p])
-        plt.plot(n[0], n[1], label='', linestyle="None", marker='o', markersize=1, color='black', fillstyle='none')
+        plt.plot(n[0], n[1], label='', linestyle="None", marker=mark, markersize=3, color='black', fillstyle='none')
         ax_est.annotate(text =str(ix), xy = [n[0], n[1]], color=colors[ix % len(colors)])
         if detect is not None:
             for ix2, n2 in enumerate(est):
