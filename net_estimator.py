@@ -1,7 +1,8 @@
 import numpy as np
 import random as rd
 import position_estimator as pe
-import expect as exp
+import coordinates as co
+import fix_est as fe
 import copy
 import matplotlib.markers as mrks
 import matplotlib.pyplot as plt
@@ -11,11 +12,24 @@ def main():
     coordfixer = False
     static = False
     half_netwidth = 1000
-    nodes = generate_nodes(200, half_netwidth)
+    nr_of_nodes = 200
+    nr_of_anchors = 20
+    maxrange = 750
+    sigma = 1
+    tx_pow = 100
+    iters = 100
+
+    nodes = generate_nodes(nr_of_nodes, half_netwidth)
     if coordfixer:
         min = np.min([x[0]**2 + x[1]**2 for x in nodes])
         nodes = np.concatenate((nodes, np.array([((1/2)*np.sqrt(min), 0),
                                                  ((1/2)*np.sqrt(min), (1/2)*np.sqrt(min))], )), axis=0)
+    has_anchors = bool(nr_of_anchors)
+    anchors = []
+    anchor_locs=[]
+    if has_anchors:
+        anchors = range(nr_of_anchors)
+        anchor_locs = nodes[anchors]
     if static:
         #nodes = np.array([[-712., -777.],[ 533.  ,  972.],[-699., -774.],[ 702.,  661.],[-335.,  994.],[ 366., -829.],
         #                  [ 930., -533.],[ 382.,  518.],[-435., -566.],[ 423., -930.],[ 827.,  332.],[ 804.,  722.],
@@ -31,11 +45,6 @@ def main():
                          [744.,  481.], [476.,  279.], [215.,  761.], [819., -874.], [-998.,  866.], [-767., -444.],
                          [-532.,  101.], [-638.,  997.], [473., -717.], [-940., -954.], [972.,  711.], [473.,  195.],
                          [-77.,  329.], [-418.,  363.], [529.,  769.]])
-
-    maxrange = 100
-    sigma = 1
-    tx_pow = 100
-    iters = 100
     dist = distances(nodes)
     # sinkdist = sinkdistances(nodes, sink)
     dist_err = errorize(dist, sigma, tx_pow)
@@ -44,9 +53,11 @@ def main():
     # totaldist_err = np.concatenate((dist_err, sinkdist_err))
     net = []
     # netOrganize(net, [], nodes.shape[0], dist, maxrange, sinkdist)
-    det, est, ref1, ref2 = net_estimate(dist_err, maxrange, iters=iters, nodes=None)
-    fixed_est = fix_est4(est, nodes, ref1, ref2)
-    location_errors = get_location_errors(nodes, fixed_est)
+    det, est, ref1, ref2 = net_estimate(dist_err, maxrange, iters=iters, nodes=None, anchors=anchors, anchor_locs=anchor_locs)
+    fixed_est = est
+    if not has_anchors:
+        fixed_est = fe.fix_est4(est, nodes, ref1, ref2)
+    location_errors = fe.get_location_errors(nodes, fixed_est)
     mean_location_error = np.average(location_errors)
 
     print("est :"+str(est))
@@ -68,14 +79,14 @@ def distances(nodes):
     distances = np.zeros((nodes.shape[0], nodes.shape[0]))
     for a in range(nodes.shape[0]):
         for b in range(nodes.shape[0]):
-            r, theta = exp.cart_to_polar(nodes[a, 0] - nodes[b, 0], nodes[a, 1] - nodes[b, 1])
+            r, theta = co.cart_to_polar(nodes[a, 0] - nodes[b, 0], nodes[a, 1] - nodes[b, 1])
             distances[a, b] = r
     return distances
 
 def sinkdistances(nodes, sink):
     sdist = np.zeros(nodes.shape[0])
     for a in range(nodes.shape[0]):
-        r, theta = exp.cart_to_polar(nodes[a, 0] - sink[0], nodes[a, 1] - sink[1])
+        r, theta = co.cart_to_polar(nodes[a, 0] - sink[0], nodes[a, 1] - sink[1])
         sdist[a] = r
     return sdist
 
@@ -91,51 +102,7 @@ def signals_errorize(dist, sigma, tx_pow):
         sig[i] = pe.errored_signal_generate(d, sigma, tx_pow)
     return sig
 
-def bestDistanceNode(bc, nodenr, dist, R):
-    best = np.infty
-    bestnode = -1
-    for m in range(dist.shape[0]):
-        if (m in bc) and (dist[nodenr, m] < min(best, R)):
-            best = dist[nodenr, m]
-            bestnode = m
-    return bestnode
-
-def netOrganize(net, beaconing, nrofnodes, distances, rge, sinkdistances):
-    while not netFull(net, nrofnodes):
-        net, beaconing = netRound(net, beaconing, distances, rge, sinkdistances)
-        if beaconing == []:
-            return
-    return
-
-def netRound(net, bc, dist, R, sinkdist):
-    newbc = []
-    for nodenr in range(dist.shape[0]):
-        if not nodeIsInNet(net, nodenr) :
-            bestnode = bestDistanceNode(bc, nodenr, dist, R)
-            if bestnode != -1:
-                net.append((nodenr, bestnode))
-                newbc.append(nodenr)
-            else:
-                if sinkdist[nodenr] < R:
-                    net.append((nodenr, -1))
-                    newbc.append(nodenr)
-    return net, newbc
-
-def nodeIsInNet(net, n):
-    found = False
-    for e in net:
-        if e[0] == n or e[1] == n:
-            found = True
-    return found
-
-def netFull(net, nodes):
-    found = np.zeros(nodes)
-    for e in net:
-        found[e[0]] = 1
-        found[e[1]] = 1
-    return (found == 1).all()
-
-def netEstimateRound(est, ready, dist, detect, sinkdist=None, sinkdet=None, initial=False):
+def netEstimateRound(est, ready, dist, detect, sinkdist=None, sinkdet=None, initial=False, anchors=[]):
     newest = copy.deepcopy(est)
     newready = copy.deepcopy(ready)
     for i in range(dist.shape[0]):
@@ -157,7 +124,8 @@ def netEstimateRound(est, ready, dist, detect, sinkdist=None, sinkdet=None, init
             est_i = np.array(est_i)
             miss_i = np.array(miss_i)
             if len(dist_i) >= 3:
-                newest[i] = pe.position_estimate_like(est_i, dist_i, pos_miss=miss_i)
+                if i not in anchors:
+                    newest[i] = pe.position_estimate_like(est_i, dist_i, pos_miss=miss_i)
                 newready.append(i)
     est = newest
     nr_added = copy.deepcopy(newready)
@@ -223,7 +191,7 @@ def allReady(ready, num, required=None):
             return False
     return True
 
-def net_estimate(dist_err, rge, iters = 20, sinkdist_err = None, nodes=None, sink_ix = 0):
+def net_estimate(dist_err, rge, iters = 20, sinkdist_err = None, nodes=None, sink_ix = 0, anchors=[], anchor_locs=None):
     if sinkdist_err == None:
         sinkdist_err = dist_err[sink_ix, :]
 
@@ -238,167 +206,22 @@ def net_estimate(dist_err, rge, iters = 20, sinkdist_err = None, nodes=None, sin
     while not allReady(ready, dist_err.shape[0]) and changed:
         # est, ready, changed = netEstimateRound(est, ready, dist_err, det, sinkdist_err, sinkdet, initial=True)
         est, ready, changed = netEstimateRound(est, ready, dist_err, det, initial=True)
-        print( "ready: "+str(ready))
+        print("ready: "+str(ready))
+    if len(anchors) > 0:
+        for i, ix in enumerate(anchors):
+            est[ix] = anchor_locs[i]
     for i in range(iters - 1):
         print("iteration number:"+str(i))
         iter_ready = []
         while not allReady(iter_ready, dist_err.shape[0], required=ready):
             # est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det, sinkdist_err, sinkdet)
-            est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det)
+            est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det, anchors=anchors)
         if nodes is not None:
             fixed_est = fix_est(est, ref1, ref2, nodes[ref1], nodes[ref2])
             location_errors = get_location_errors(nodes, fixed_est)
             mean_location_error = np.average(location_errors)
             plot_pos(nodes, est, mean_location_error, rge)
     return det, est, ref1, ref2
-
-def fix_est(est, ref1, ref2, node1, node2):
-    _, rot = exp.cart_to_polar(node1[0], node1[1])
-    righthand = np.zeros(est.shape)
-    # fix the handedness
-    theta = exp.cart_to_polar(node2[0], node2[1])[1] - exp.cart_to_polar(node1[0], node1[1])[1]
-    if theta > np.pi:
-        for i, x in enumerate(est):
-            righthand[i][0] = x[0]
-            righthand[i][1] = -x[1]
-    else:
-        for i, x in enumerate(est):
-            righthand[i][0] = x[0]
-            righthand[i][1] = x[1]
-    # rotate to real ref1 position
-    derot = np.zeros(est.shape)
-    for i, x in enumerate(righthand):
-        r, theta = exp.cart_to_polar(x[0], x[1])
-        newx, newy = exp.polar_to_cart(r, theta + rot)
-        derot[i] = (newx, newy)
-    return derot
-
-def fix_est2(est, nodes, ref1, ref2):
-    rhest = get_righthand(est, nodes, ref1, ref2)
-
-    _, est_theta = exp.cart_to_polar(rhest[:,0], rhest[:,1])
-    _, nodes_theta = exp.cart_to_polar(nodes[:, 0], nodes[:, 1])
-    rots = est_theta - nodes_theta
-    avr_rot = avr_angle(rots)
-    derot = np.zeros(est.shape)
-    for i, x in enumerate(rhest):
-        r, theta = exp.cart_to_polar(x[0], x[1])
-        newx, newy = exp.polar_to_cart(r, theta - avr_rot)
-        derot[i] = np.array([newx, newy])
-    return derot
-
-def fix_est3(est, nodes, tol = 0.0001):
-    min_rot = second_rot = 0
-    min_err = second_err = np.average(get_location_errors(nodes, est))
-    for i in range(1, 4):
-        rot = i * np.pi / 2
-        newest = rotate_graph(est, rot)
-        err = np.average(get_location_errors(nodes, newest))
-        if err < min_err:
-            second_rot = min_rot
-            second_err = min_err
-            min_rot = rot
-            min_err = err
-        else:
-            if second_rot < min_rot:
-                second_rot = rot
-                second_err = err
-    while np.abs(min_rot - second_rot) < tol:
-        rot_lo = min(min_rot, second_rot)
-        rot_hi = max(min_rot, second_rot)
-        rot = (rot_hi - rot_lo) / 2
-        newest = rotate_graph(est, rot)
-        err = np.average(get_location_errors(nodes, newest))
-        if err < min_err:
-            second_rot = min_rot
-            second_err = min_err
-            min_rot = rot
-            min_err = err
-        else:
-            second_rot = rot
-            second_err = err
-    return rotate_graph(est, min_rot)
-
-def fix_est4(est, nodes, ref1, ref2, sink_ix=0):
-    est_orig = sink_correct(sink_ix, est)
-    nodes_orig = sink_correct(sink_ix, nodes)
-    rhest = get_righthand(est_orig, nodes_orig, ref1, ref2)
-    min_rot = 0
-    min_err = np.average(get_location_errors(nodes_orig, rhest))
-    for rot in np.arange(0.0, 2 * np.pi, 0.01):
-        newest = rotate_graph(rhest, rot)
-        err = np.average(get_location_errors(nodes_orig, newest))
-        if err < min_err:
-            min_rot = rot
-            min_err = err
-    rotd = rotate_graph(rhest, min_rot)
-    return rotd + nodes[sink_ix]
-
-def sink_correct(sink_ix, graph):
-    sink = graph[sink_ix]
-    newgraph = graph - sink
-    return newgraph
-
-def rotate_graph(graph, rot):
-    derot = np.zeros(graph.shape)
-    for i, x in enumerate(graph):
-        r, theta = exp.cart_to_polar(x[0], x[1])
-        if r == 0 or theta == np.nan:
-            newx, newy = (0, 0)
-        else:
-            newx, newy = exp.polar_to_cart(r, theta + rot)
-        derot[i] = np.array([newx, newy])
-    return derot
-
-def get_righthand(est, nodes, ref1, ref2, sink_ix=0):
-    node1 = nodes[ref1]
-    node2 = nodes[ref2]
-    righthand = np.zeros(est.shape)
-    # fix the handedness
-    theta = exp.cart_to_polar(node2[0], node2[1])[1] - exp.cart_to_polar(node1[0], node1[1])[1]
-    # Handedness vote
-    nodehand = np.zeros((est.shape[0], est.shape[0]))
-    esthand = np.zeros((est.shape[0], est.shape[0]))
-    for i in range(est.shape[0]):
-        for j in range(i + 1, est.shape[0]):
-            if i != sink_ix and j != sink_ix:
-                theta1 = (exp.cart_to_polar(nodes[j,0], nodes[j,1])[1] -
-                          exp.cart_to_polar(nodes[i,0], nodes[i,1])[1]) % (2 * np.pi)
-                nodehand[i, j] = 1 if theta1 < np.pi else -1
-                theta2 = (exp.cart_to_polar(est[j, 0], est[j, 1])[1] -
-                          exp.cart_to_polar(est[i, 0], est[i, 1])[1]) % (2 * np.pi)
-                esthand[i, j] = 1 if theta2 < np.pi else -1
-    handparities = nodehand * esthand
-    handsum = np.sum(handparities)
-    if handsum < 0:
-        for i, x in enumerate(est):
-            righthand[i][0] = x[0]
-            righthand[i][1] = -x[1]
-    else:
-        for i, x in enumerate(est):
-            righthand[i][0] = x[0]
-            righthand[i][1] = x[1]
-    return righthand
-
-def avr_angle(angles):
-    avr1 = np.average(angles)
-    var1 = np.average((angles - avr1) ** 2)
-    angles2 = copy.deepcopy(angles)
-    for i, a in np.ndenumerate(angles):
-        if a > np.pi:
-            angles2[i] = a - 2 * np.pi
-    avr2 = np.average(angles2)
-    var2 = np.average((angles2 - avr2) ** 2)
-    if var2 < var1:
-        if avr2 < 0:
-            return avr2 + 2 * np.pi
-        else:
-            return avr2
-    else:
-        return avr1
-
-def get_location_errors(nodes, est):
-    return np.sqrt((nodes[:,0]- est[:,0]) ** 2 + (nodes[:,1]- est[:,1]) ** 2)
 
 def plot_pos(nodes, est, mean_location_error, halfwidth = 1000, detect = None):
     fig, ax = plt.subplots(figsize=(6,6),num="Node positions")

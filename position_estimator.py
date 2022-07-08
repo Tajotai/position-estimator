@@ -1,7 +1,8 @@
 import numpy as np
 import random as rd
-import expect as exp
+import coordinates as co
 import maximize as mx
+import util
 
 def distance_bias_multiplier(sigma, gamma):
     return 10 ** (np.log(10) * (sigma ** 2)/(200 * (gamma ** 2)))
@@ -80,7 +81,7 @@ def nonbiased_calculate_distance(rx_pow, tx_pow, mu, beta, sigma):
     :param beta:
     :return:
     '''
-    return calculate_distance(rx_pow, tx_pow, mu, beta) / distance_bias_multiplier(sigma, 2)
+    return calculate_distance(rx_pow, tx_pow) / distance_bias_multiplier(sigma, 2)
 
 def update_distance_simple(dist, n, newpow):
     return
@@ -172,7 +173,7 @@ def position_estimate(pos, dist):
             return (0, 0, 0)
     else:
         if length > 6:
-            min_ix = find_min(dist, 6)
+            min_ix = util.find_min(dist, 6)
             min_ix = np.array(min_ix, dtype=int)
             trimpos = pos[min_ix]
             trimdist = dist[min_ix]
@@ -189,15 +190,15 @@ def position_estimate(pos, dist):
 
 def position_estimate_two(p0, p1, d0, d1):
     est0, est1 = bilaterate(p0, p1, d0, d1)
-    r0, _ = exp.cart_to_polar(p0[0], p0[1])
-    r1, _ = exp.cart_to_polar(p1[0], p1[1])
+    r0, _ = co.cart_to_polar(p0[0], p0[1])
+    r1, _ = co.cart_to_polar(p1[0], p1[1])
     if r1 > r0:
         return est1
     else:
         return est0
 
 def position_estimate_one(pos, dist):
-    r, theta = exp.cart_to_polar(pos)
+    r, theta = co.cart_to_polar(pos)
     return ((r + dist) / r) * pos
 
 def position_estimate_like(pos_det, dist, pos_miss=None, maxrange = np.inf):
@@ -223,42 +224,18 @@ def loss(x1, y1, x2, y2):
 
 def like(x, y, losses, xi, yi, x_miss=None, y_miss=None, maxrange = np.inf):
     det = -np.sum(((losses - loss(x, y, xi, yi))**2)/(20/ np.log(10)))
-    nondet = 0 if (x_miss is None) else np.sum(logPhi_approx(x, y, x_miss, y_miss, maxrange))
-    return det + nondet
+    # nondet = 0 if (x_miss is None) else np.sum(logPhi_approx(x, y, x_miss, y_miss, maxrange))
+    # return det + nondet
+    return det
 
 def logPhi_approx(x, y, x_m, y_m, maxrange, sigma=1):
     pathloss = loss(x, y, x_m, y_m)
     thresh_loss = calculate_path_loss(maxrange)
     return 2 * np.min(np.array([(thresh_loss - pathloss)/np.sqrt(np.pi), np.zeros(x_m.shape[0]) + np.log(2)]), axis=0)
 
-def find_min(array, number_of_mins):
-    min_ix = np.zeros(number_of_mins) - 1
-    items = np.zeros(number_of_mins)
-    for i in range(len(array)):
-        item = array[i]
-        if i == 0:
-            items[0] = item
-            min_ix[0] = 0
-            continue
-        maxj = min(i - 1, number_of_mins - 1)
-        for j in range(maxj, -1, -1):
-            if item < items[j] or min_ix[j] == -1:
-                if j < number_of_mins - 1:
-                    min_ix[j + 1] = min_ix[j]
-                    items[j + 1] = items[j]
-                    if j == 0:
-                        min_ix[0] = i
-                        items[0] = item
-            else:
-                if j < number_of_mins - 1:
-                    min_ix[j + 1] = i
-                    items[j + 1] = item
-                break
-    return min_ix
-
 def pe_like_initialize(pos, dist):
     # Finds the three nodes with smallest distances and trilaterates through them
-    min_ix = find_min(dist, 3)
+    min_ix = util.find_min(dist, 3)
     min_ix1 = int(min_ix[0])
     min_ix2 = int(min_ix[1])
     min_ix3 = int(min_ix[2])
