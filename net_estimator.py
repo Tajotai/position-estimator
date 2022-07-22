@@ -6,13 +6,14 @@ import fix_est as fe
 import copy
 import matplotlib.markers as mrks
 import matplotlib.pyplot as plt
+import initial_estimate as ie
 
 def main():
     sink_ix = 0
     coordfixer = False
     static = False
     half_netwidth = 1000
-    nr_of_nodes = 200
+    nr_of_nodes = 100
     nr_of_anchors = 20
     maxrange = 750
     sigma = 1
@@ -28,7 +29,7 @@ def main():
     anchors = []
     anchor_locs=[]
     if has_anchors:
-        anchors = range(nr_of_anchors)
+        anchors = np.arange(nr_of_anchors)
         anchor_locs = nodes[anchors]
     if static:
         #nodes = np.array([[-712., -777.],[ 533.  ,  972.],[-699., -774.],[ 702.,  661.],[-335.,  994.],[ 366., -829.],
@@ -65,7 +66,7 @@ def main():
     print("original: "+str(nodes))
     #print("error: "+str(fixed_est - nodes))
 
-    plot_pos(nodes, fixed_est, mean_location_error, half_netwidth, detect=None)
+    plot_pos(nodes, fixed_est, mean_location_error, half_netwidth, detect=None, anchors=anchors)
 
 
 def generate_nodes(n, radius):
@@ -203,15 +204,16 @@ def net_estimate(dist_err, rge, iters = 20, sinkdist_err = None, nodes=None, sin
     update(est, ready, [sink_ix, ref1, ref2], [(0, 0), ref1_est, ref2_est])
     changed = True
     #initialization
-    while not allReady(ready, dist_err.shape[0]) and changed:
-        # est, ready, changed = netEstimateRound(est, ready, dist_err, det, sinkdist_err, sinkdet, initial=True)
-        est, ready, changed = netEstimateRound(est, ready, dist_err, det, initial=True)
-        print("ready: "+str(ready))
-    if len(anchors) > 0:
-        for i, ix in enumerate(anchors):
-            est[ix] = anchor_locs[i]
+    if len(anchors) > 2:
+        est = ie.initial_estimate_hopcount(dist_err, det, anchor_locs, anchors, rge)
+    else:
+        while not allReady(ready, dist_err.shape[0]) and changed:
+            # est, ready, changed = netEstimateRound(est, ready, dist_err, det, sinkdist_err, sinkdet, initial=True)
+            est, ready, changed = netEstimateRound(est, ready, dist_err, det, initial=True)
+            print("ready: " + str(ready))
     for i in range(iters - 1):
-        print("iteration number:"+str(i))
+        if i%50 == 0:
+            print("iteration number:"+str(i))
         iter_ready = []
         while not allReady(iter_ready, dist_err.shape[0], required=ready):
             # est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det, sinkdist_err, sinkdet)
@@ -223,20 +225,26 @@ def net_estimate(dist_err, rge, iters = 20, sinkdist_err = None, nodes=None, sin
             plot_pos(nodes, est, mean_location_error, rge)
     return det, est, ref1, ref2
 
-def plot_pos(nodes, est, mean_location_error, halfwidth = 1000, detect = None):
+def plot_pos(nodes, est, mean_location_error, halfwidth = 1000, detect = None, anchors = None):
     fig, ax = plt.subplots(figsize=(6,6),num="Node positions")
     colors = ['black','blue','red','green','brown','orange','gold','pink','cyan','lime']
     mark = mrks.MarkerStyle('o', 'full')
     for ix, n in enumerate(nodes):
         # print(pos[p])
-        plt.plot(n[0], n[1], label='', linestyle="None", marker=mark, markersize=3, color='black', fillstyle='none')
+        col = 'black'
+        if ix in anchors:
+            col = 'red'
+        plt.plot(n[0], n[1], label='', linestyle="None", marker=mark, markersize=3, color=col, fillstyle='none')
         ax.annotate(text =str(ix), xy = [n[0], n[1]], color=colors[ix % len(colors)])
 
 
     fig_est, ax_est = plt.subplots(figsize=(6, 6), num="Estimated positions")
     for ix, n in enumerate(est):
         # print(pos[p])
-        plt.plot(n[0], n[1], label='', linestyle="None", marker=mark, markersize=3, color='black', fillstyle='none')
+        col = 'black'
+        if ix in anchors:
+            col = 'red'
+        plt.plot(n[0], n[1], label='', linestyle="None", marker=mark, markersize=3, color=col, fillstyle='none')
         ax_est.annotate(text =str(ix), xy = [n[0], n[1]], color=colors[ix % len(colors)])
         if detect is not None:
             for ix2, n2 in enumerate(est):

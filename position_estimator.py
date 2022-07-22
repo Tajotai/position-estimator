@@ -223,10 +223,11 @@ def loss(x1, y1, x2, y2):
     return calculate_path_loss(d)
 
 def like(x, y, losses, xi, yi, x_miss=None, y_miss=None, maxrange = np.inf):
-    det = -np.sum(((losses - loss(x, y, xi, yi))**2)/(20/ np.log(10)))
-    # nondet = 0 if (x_miss is None) else np.sum(logPhi_approx(x, y, x_miss, y_miss, maxrange))
-    # return det + nondet
-    return det
+    sq_loss_dev = (losses - loss(x, y, xi, yi))**2
+    det = -np.sum((sq_loss_dev/(20/ np.log(10))))
+    nondet = 0 if (x_miss is None) else np.sum(logPhi_approx(x, y, x_miss, y_miss, maxrange))
+    return det + nondet
+    # return det
 
 def logPhi_approx(x, y, x_m, y_m, maxrange, sigma=1):
     pathloss = loss(x, y, x_m, y_m)
