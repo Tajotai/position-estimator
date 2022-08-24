@@ -8,18 +8,30 @@ import matplotlib.markers as mrks
 import matplotlib.pyplot as plt
 import initial_estimate as ie
 
-def main():
-    sink_ix = 0
-    coordfixer = False
-    static = False
-    half_netwidth = 1000
-    nr_of_nodes = 100
-    nr_of_anchors = 20
-    maxrange = 750
-    sigma = 1
-    tx_pow = 100
-    iters = 100
-
+def main(args=None):
+    if args is None:
+        sink_ix = 0
+        coordfixer = False
+        static = False
+        half_netwidth = 1000
+        nr_of_nodes = 500
+        nr_of_anchors = 25
+        maxrange = 750
+        sigma = 5
+        tx_pow = 100
+        iters = 20
+    else:
+        sink_ix = args[0]
+        coordfixer = args[1]
+        static = args[2]
+        half_netwidth = args[3]
+        nr_of_nodes = args[4]
+        nr_of_anchors = args[5]
+        maxrange = args[6]
+        sigma = args[7]
+        tx_pow = args[8]
+        iters = args[9]
+        plot_interval = args[10]
     nodes = generate_nodes(nr_of_nodes, half_netwidth)
     if coordfixer:
         min = np.min([x[0]**2 + x[1]**2 for x in nodes])
@@ -54,7 +66,7 @@ def main():
     # totaldist_err = np.concatenate((dist_err, sinkdist_err))
     net = []
     # netOrganize(net, [], nodes.shape[0], dist, maxrange, sinkdist)
-    det, est, ref1, ref2 = net_estimate(dist_err, maxrange, iters=iters, nodes=None, anchors=anchors, anchor_locs=anchor_locs)
+    det, est, ref1, ref2 = net_estimate(dist_err, maxrange, iters, half_netwidth, nodes=nodes, anchors=anchors, anchor_locs=anchor_locs)
     fixed_est = est
     if not has_anchors:
         fixed_est = fe.fix_est4(est, nodes, ref1, ref2)
@@ -192,7 +204,7 @@ def allReady(ready, num, required=None):
             return False
     return True
 
-def net_estimate(dist_err, rge, iters = 20, sinkdist_err = None, nodes=None, sink_ix = 0, anchors=[], anchor_locs=None):
+def net_estimate(dist_err, rge, iters, half_nw, sinkdist_err = None, nodes=None, sink_ix = 0, anchors=[], anchor_locs=None):
     if sinkdist_err == None:
         sinkdist_err = dist_err[sink_ix, :]
 
@@ -204,28 +216,33 @@ def net_estimate(dist_err, rge, iters = 20, sinkdist_err = None, nodes=None, sin
     update(est, ready, [sink_ix, ref1, ref2], [(0, 0), ref1_est, ref2_est])
     changed = True
     #initialization
-    if len(anchors) > 2:
-        est = ie.initial_estimate_hopcount(dist_err, det, anchor_locs, anchors, rge)
-    else:
-        while not allReady(ready, dist_err.shape[0]) and changed:
-            # est, ready, changed = netEstimateRound(est, ready, dist_err, det, sinkdist_err, sinkdet, initial=True)
-            est, ready, changed = netEstimateRound(est, ready, dist_err, det, initial=True)
-            print("ready: " + str(ready))
+    est, hopcounts = ie.initial_estimate_hopcount(dist_err, det, anchor_locs, anchors, rge)
+    dist_all = copy.deepcopy(dist_err)
+    for i in range(dist_err.shape[0]):
+        for j in range(dist_err.shape[0]):
+            if not det[i, j]:
+                dist_all[i, j] = ie.approx_range(hopcounts[i, j], rge)
+    det_full = np.zeros(det.shape) + 1
     for i in range(iters - 1):
-        if i%50 == 0:
+        if i%5 == 0:
             print("iteration number:"+str(i))
+        prev_est = copy.deepcopy(est)
         iter_ready = []
         while not allReady(iter_ready, dist_err.shape[0], required=ready):
             # est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det, sinkdist_err, sinkdet)
-            est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det, anchors=anchors)
+            est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det_full, anchors=anchors)
         if nodes is not None:
-            fixed_est = fix_est(est, ref1, ref2, nodes[ref1], nodes[ref2])
-            location_errors = get_location_errors(nodes, fixed_est)
+            fixed_est = fe.fix_est(est, ref1, ref2, nodes[ref1], nodes[ref2])
+            location_errors = fe.get_location_errors(nodes, fixed_est)
             mean_location_error = np.average(location_errors)
-            plot_pos(nodes, est, mean_location_error, rge)
+            #plot_pos(nodes, est, mean_location_error, half_nw, anchors=anchors, mode='save', index=i)
+        est_diff = est - prev_est
+        mean_diff = np.average(fe.get_location_errors(est_diff, np.zeros(est_diff.shape)))
+        print("Estimation diff "+str(i)+" "+str(mean_diff))
     return det, est, ref1, ref2
 
-def plot_pos(nodes, est, mean_location_error, halfwidth = 1000, detect = None, anchors = None):
+def plot_pos(nodes, est, mean_location_error, halfwidth = 1000, detect = None, anchors = None, mode = 'show', index=0):
+    fig_i = plt.figure(index)
     fig, ax = plt.subplots(figsize=(6,6),num="Node positions")
     colors = ['black','blue','red','green','brown','orange','gold','pink','cyan','lime']
     mark = mrks.MarkerStyle('o', 'full')
@@ -256,7 +273,13 @@ def plot_pos(nodes, est, mean_location_error, halfwidth = 1000, detect = None, a
 
     text_str = "Mean location error: "+str(mean_location_error)+" meters"
     ax_est.set_xlabel(text_str)
-    plt.show()
+    if mode == 'show':
+        plt.show()
+        pass
+    elif mode=='save':
+        filename = 'posestplot'+str(index)
+        plt.savefig(filename)
+        plt.close()
 
 if __name__ == '__main__':
     main()

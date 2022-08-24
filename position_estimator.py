@@ -22,7 +22,7 @@ def distance_error_generate(r, sigma, tx_pow, bias=True):
         r_err = nonbiased_calculate_distance(tx_pow - powdiff + powerror, tx_pow, mu, beta, sigma)
     return r_err
 
-def errored_signal_generate(r, sigma, tx_pow):
+def errored_signal_generate(r, sigma):
     if r == 0:
         return 0
     powdiff = 2 * 10 * (np.log10(r) + np.log10(0.0999308193333333 / (4 * np.pi)))
@@ -211,12 +211,33 @@ def position_estimate_like(pos_det, dist, pos_miss=None, maxrange = np.inf):
         xi_miss = pos_miss[:, 0]
         yi_miss = pos_miss[:, 1]
     like_ = lambda x: like(x[0], x[1], losses, xi, yi, xi_miss, yi_miss, maxrange)
-    ddx_like = lambda x: (like_(np.array([x[0] + 0.0001, x[1]])) - like_(x)) * 10000
-    ddy_like = lambda x: (like_(np.array([x[0], x[1] + 0.0001])) - like_(x)) * 10000
+    #ddx_like = lambda x: (like_(np.array([x[0] + 0.0001, x[1]])) - like_(x)) * 10000
+    #ddy_like = lambda x: (like_(np.array([x[0], x[1] + 0.0001])) - like_(x)) * 10000
+    ddx_like = lambda x: partial_x(x[0], x[1], losses, xi, yi)
+    ddy_like = lambda x: partial_y(x[0], x[1], losses, xi, yi)
     init = pe_like_initialize(pos_det, dist)
-    xy_max, _ = mx.maximize_conjugate_gradient(like_, 2, [ddx_like, ddy_like], init, iters=15,
+    xy_max, _ = mx.maximize_conjugate_gradient(like_, 2, [ddx_like, ddy_like], init, iters=10,
                                          onedimiters=5, onedimigap=500)
     return xy_max
+
+def position_estimate_global(det, dist, num_anchors, pos_anchors):
+    losses = calculate_path_loss(dist)
+    n_x = np.size(det)[0]
+    globlike_ = lambda x: globlike(num_anchors, cat_pos(pos_anchors[:,0], x[0::2], num_anchors, n_x),
+                                   cat_pos(pos_anchors[:,1], x[1::2], num_anchors, n_x), losses, det)
+    globpartials = []
+    for i in range(2 * (n_x - num_anchors)):
+        var_is_x = bool((i + 1) % 2)
+        ddxi_gl = lambda x: globpartial(n_anc + i // 2, var_is_x, x[0::2], x[1::2], losses, det, n_anc)
+        globpartials.append(ddxi_gl)
+
+
+
+def cat_pos(anc, x, n_anc, n_x):
+    ret = np.zeros(n_anc + n_x)
+    ret[:n_anc] = anc
+    ret[n_anc:] = x
+    return ret
 
 def loss(x1, y1, x2, y2):
     d = np.sqrt((x2 - x1) ** 2+ (y2 - y1)**2)
@@ -224,10 +245,44 @@ def loss(x1, y1, x2, y2):
 
 def like(x, y, losses, xi, yi, x_miss=None, y_miss=None, maxrange = np.inf):
     sq_loss_dev = (losses - loss(x, y, xi, yi))**2
-    det = -np.sum((sq_loss_dev/(20/ np.log(10))))
+    det = -np.sum(sq_loss_dev/(20/ np.log(10)))
     nondet = 0 if (x_miss is None) else np.sum(logPhi_approx(x, y, x_miss, y_miss, maxrange))
-    return det + nondet
-    # return det
+    #return det + nondet
+    return det
+
+def partial_x(x, y, losses, xi, yi):
+    det = np.sum(np.log(10) * (x - xi)* (losses - loss(x, y, xi, yi)) /((x - xi)**2 + (y - yi)**2))
+    return det
+
+def partial_y(x, y, losses, xi, yi):
+    det = np.sum(np.log(10) * (y - yi)* (losses - loss(x, y, xi, yi)) /((x - xi)**2 + (y - yi)**2))
+    return det
+
+def globlike(n_anc, x, y, losses, det):
+    # Currently sigmaless
+    sum = 0
+    for i in range(n_anc, len(x)+n_anc):
+        for k in range(n_anc):
+            if det[i, k]:
+                sum -= ((losses[i,k] - loss(x[i],y[i],x[k],y[k]))**2)/(20 / np.log(10))
+        for j in range(i + 1, len(y)+n_anc):
+            if det[i, j]:
+                sum -= ((losses[i,j] - loss(x[i],y[i],x[j],y[j]))**2)/(20 / np.log(10))
+    return sum
+
+def globpartial(index, var_is_x, x, y, losses, det, n_anc):
+    if var_is_x:
+        vec = x
+    else:
+        vec = y
+    sum = 0
+    for j in range(1, len(x) + n_anc):
+        if j==i:
+            continue
+        elif det[index, j]:
+            num = np.log(10)*(vec[index] - vec[j])(losses[index, j] - loss(x[index], y[index], x[j], y[j]))
+            sum += num / ((x[index] - x[j])**2 + (y[index] - y[j])**2)
+    return sum
 
 def logPhi_approx(x, y, x_m, y_m, maxrange, sigma=1):
     pathloss = loss(x, y, x_m, y_m)

@@ -43,10 +43,11 @@ def initial_estimator(dist, anchor_ix):
 
 def initial_estimate_hopcount(dist, detect, anchor_locs, anchor_ixs, maxrange):
     # number of hops to node i from anchor j in hopcounts[i, j]
-    hopcounts = calculate_hopcounts(detect, anchor_ixs)
+    hopcounts = calculate_hopcounts(detect)
     est = np.zeros((detect.shape[0], 2), dtype=complex)
+    hopcounts_anc = hopcounts[:, anchor_ixs]
     for i in range(detect.shape[0]):
-        min_ix = util.find_min(hopcounts[i, :], 3)
+        min_ix = util.find_min(hopcounts_anc[i, :], 3)
         min_anchors = anchor_ixs[[int(min_ix[0]), int(min_ix[1]), int(min_ix[2])]]
         anc1 = min_anchors[0]
         anc2 = min_anchors[1]
@@ -60,9 +61,9 @@ def initial_estimate_hopcount(dist, detect, anchor_locs, anchor_ixs, maxrange):
         if i == int(min_ix[0]):
             est[i] = loc1
         else:
-            dist1 = give_dist(dist, detect, hopcounts, i, anc1, aix1, maxrange)
-            dist2 = give_dist(dist, detect, hopcounts, i, anc2, aix2, maxrange)
-            dist3 = give_dist(dist, detect, hopcounts, i, anc3, aix3, maxrange)
+            dist1 = give_dist(dist, detect, hopcounts, i, aix1, maxrange)
+            dist2 = give_dist(dist, detect, hopcounts, i, aix2, maxrange)
+            dist3 = give_dist(dist, detect, hopcounts, i, aix3, maxrange)
             #ones = (hopcounts[i, anc1] == 1) + (hopcounts[i, anc2] == 1) + (hopcounts[i, anc3] == 1)
             #if ones == 3:
             #    est[i] = pe.trilaterate_simple(loc1, loc2, loc3, dist[i, aix1], dist[i, aix2], dist[i, aix3])
@@ -73,22 +74,25 @@ def initial_estimate_hopcount(dist, detect, anchor_locs, anchor_ixs, maxrange):
             pos_i = np.array([loc1, loc2, loc3])
             dist_i = np.array([dist1, dist2, dist3])
             est[i] = pe.position_estimate_like(pos_i, dist_i)
-    return est
+    return est, hopcounts
 
-def calculate_hopcounts(detect, anchor_ixs):
-    hopcounts = np.zeros((detect.shape[0], anchor_ixs.shape[0])) - 1
-    for n, ix in enumerate(anchor_ixs):
-        hopcounts[ix, n] = 0
+def calculate_hopcounts(detect):
+    hopcounts = np.zeros((detect.shape[0], detect.shape[0])) - 1
+    for i in range(detect.shape[0]):
+        hopcounts[i, i] = 0
     hops = 0
     changed = True
     while (hopcounts == -1).any() and changed:
         changed = False
         for i in range(detect.shape[0]):
-            for n in range(anchor_ixs.shape[0]):
+            for n in range(detect.shape[0]):
+                if hopcounts[i, n] != -1:
+                    continue
                 for j in range(detect.shape[0]):
-                    if hopcounts[i, n] == -1 and hopcounts[j,n] == hops and detect[i, j]:
+                    if hopcounts[j, n] == hops and detect[i, j]:
                         hopcounts[i, n] = hops + 1
                         changed = True
+                        break
         hops += 1
     return hopcounts
 
@@ -113,9 +117,9 @@ def update_est_2ones(dists, anchor_locs, anchor_ixs, hopcounts, min_anchors, i):
     else:
         return ests[1]
 
-def give_dist(dist, det, hops, i, j, aix_j, maxrange):
-    if det[i, aix_j]:
-        return dist[i, aix_j]
+def give_dist(dist, det, hops, i, j, maxrange):
+    if det[i, j]:
+        return dist[i, j]
     else:
         n = hops[i, j]
         return approx_range(n, maxrange)
