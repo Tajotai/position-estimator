@@ -3,6 +3,7 @@ import random as rd
 import coordinates as co
 import maximize as mx
 import util
+np.random.seed(386)
 
 def distance_bias_multiplier(sigma, gamma):
     return 10 ** (np.log(10) * (sigma ** 2)/(200 * (gamma ** 2)))
@@ -220,21 +221,44 @@ def position_estimate_like(pos_det, dist, pos_miss=None, maxrange = np.inf):
                                          onedimiters=5, onedimigap=500)
     return xy_max
 
-def position_estimate_global(det, dist, num_anchors, pos_anchors):
+def position_estimate_like_metro(pos_det, dist, tempr, init, pos_miss=None, maxrange = np.inf,
+                                 metro_iters=2**8, metroscale=500):
     losses = calculate_path_loss(dist)
-    n_x = np.size(det)[0]
-    globlike_ = lambda x: globlike(num_anchors, cat_pos(pos_anchors[:,0], x[0::2], num_anchors, n_x),
-                                   cat_pos(pos_anchors[:,1], x[1::2], num_anchors, n_x), losses, det)
+    xi = pos_det[:, 0]
+    yi = pos_det[:, 1]
+    xi_miss = None
+    yi_miss = None
+    if pos_miss is not None and pos_miss.shape[0] != 0:
+        xi_miss = pos_miss[:, 0]
+        yi_miss = pos_miss[:, 1]
+    posx, posy = init
+    fp = like(posx, posy, losses, xi, yi)
+    for i in range(metro_iters):
+        x = posx + (np.random.random() - 0.5) * metroscale
+        y = posy + (np.random.random() - 0.5) * metroscale
+        fq = like(x, y, losses, xi, yi)
+        if fq > fp or np.random.random() > np.exp((fq - fp)/tempr):
+            posx, posy, fp = x, y, fq
+    return np.array([posx, posy])
+
+def position_estimate_global(det, dist, n_anc, pos_anchors):
+    losses = calculate_path_loss(dist)
+    n_x = np.shape(det)[0]
+    globlike_ = lambda x: globlike(n_anc, cat_pos(pos_anchors[:,0], x[0::2], n_anc, n_x),
+                                   cat_pos(pos_anchors[:,1], x[1::2], n_anc, n_x), losses, det)
     globpartials = []
-    for i in range(2 * (n_x - num_anchors)):
+    for i in range(2 * n_anc, 2 * n_x):
         var_is_x = bool((i + 1) % 2)
-        ddxi_gl = lambda x: globpartial(n_anc + i // 2, var_is_x, x[0::2], x[1::2], losses, det, n_anc)
+        ddxi_gl = lambda x: globpartial(i // 2, var_is_x, cat_pos(pos_anchors[:,0], x[0::2], n_anc, n_x),
+                                        cat_pos(pos_anchors[:,1], x[1::2], n_anc, n_x), losses, det, n_anc)
         globpartials.append(ddxi_gl)
-
-
+    # init = np.reshape(init_est[n_anc:,:], (2 * (n_x - n_anc)))
+    est_raw, mins = mx.maximize_sim_ann(globlike_, 2 * (n_x - n_anc), pos_anchors)
+    est = np.reshape(est_raw, (n_x - n_anc, 2))
+    return np.concatenate((pos_anchors,est))
 
 def cat_pos(anc, x, n_anc, n_x):
-    ret = np.zeros(n_anc + n_x)
+    ret = np.zeros(n_x)
     ret[:n_anc] = anc
     ret[n_anc:] = x
     return ret
@@ -261,11 +285,11 @@ def partial_y(x, y, losses, xi, yi):
 def globlike(n_anc, x, y, losses, det):
     # Currently sigmaless
     sum = 0
-    for i in range(n_anc, len(x)+n_anc):
+    for i in range(n_anc, len(x)):
         for k in range(n_anc):
             if det[i, k]:
                 sum -= ((losses[i,k] - loss(x[i],y[i],x[k],y[k]))**2)/(20 / np.log(10))
-        for j in range(i + 1, len(y)+n_anc):
+        for j in range(i + 1, len(y)):
             if det[i, j]:
                 sum -= ((losses[i,j] - loss(x[i],y[i],x[j],y[j]))**2)/(20 / np.log(10))
     return sum
@@ -276,11 +300,11 @@ def globpartial(index, var_is_x, x, y, losses, det, n_anc):
     else:
         vec = y
     sum = 0
-    for j in range(1, len(x) + n_anc):
-        if j==i:
+    for j in range(len(x)):
+        if j==index:
             continue
         elif det[index, j]:
-            num = np.log(10)*(vec[index] - vec[j])(losses[index, j] - loss(x[index], y[index], x[j], y[j]))
+            num = np.log(10) * (vec[index] - vec[j]) * (losses[index, j] - loss(x[index], y[index], x[j], y[j]))
             sum += num / ((x[index] - x[j])**2 + (y[index] - y[j])**2)
     return sum
 

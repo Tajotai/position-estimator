@@ -1,20 +1,26 @@
 import numpy as np
+import coordinates as co
 import copy
 
-def maximize_conjugate_gradient(function, dim, partial_diffs, init, iters=10, onedimiters = 5, onedimigap = 100, tol = 0.000001):
+
+def maximize_conjugate_gradient(function, dim, partial_diffs, init,
+                                iters=10, onedimiters=5, onedimigap=100, tol=0.00000001):
     '''
     Maximizes the function numerically using conjugate gradient method
 
-    :param function: Function to maximize; the function has to intake args as a numpy array unless dim=1!
+    :param function: Function to maximize; the function has to intake args as a numpy array unless dim==1!
     :param dim: Dimension, in other words, the number of arguments in the function
     :param partial_diffs: List of partial derivative functions of the function parameter. Should have the number of
     elements indicated by the dim parameter
     :param init: Initial point for arguments
     :param iters: Number of iterations
-    :return:
+    :param onedimiters: Number of iterations in the one dimension maximize algorithm
+    :param onedimigap: Gap between starting points in one dimension Brent algorithm
+    :param tol: Threshold to get under in relative estimate error to stop the algorithm.
+    :return: Tuple with second value being the maximum value and first value being the point it's reached at.
     '''
     if dim == 1:
-        return maximize_one_dim(function, init, onedimiters)
+        return maximize_one_dim_brent(function, init, onedimiters)
     P = init
     fP = function(P)
     fret = 0
@@ -26,7 +32,7 @@ def maximize_conjugate_gradient(function, dim, partial_diffs, init, iters=10, on
         min_x, fret = maximize_one_dim_brent(fun_lin, 0, onedimiters,
                                              initgap=onedimigap / np.sqrt(np.vdot(h, h)))
         fdiff = np.abs(fP - fret)
-        if 2 * fdiff <= tol * (np.abs(fP) + np.abs(fret) + 0.000000001) and i != 0:
+        if 2 * fdiff <= tol * (np.abs(fP) + np.abs(fret) + 0.000000001) and i != 0 and i >= dim:
             return P, fP
         if fret >= fP:
             fP = fret
@@ -156,6 +162,65 @@ def update_brent(a, b, x, u, v, w, fx, fu, fv, fw):
             v = u
             fv = fu
     return a, b, x, v, w, fx, fv, fw
+
+def maximize_sim_ann(function, dim, pos_anchors, n_atoms=2**10, mincoord=-10000, maxcoord=10000,
+                     T_0=100, dTperT=-0.002, iters=1000, stepsigma=2000):
+    atoms = max_sim_ann_initialize(dim, n_atoms, pos_anchors)
+    fp = np.zeros(n_atoms)
+    for a in range(n_atoms):
+        fp[a] = function(atoms[a,:])
+    sigmas = stepsigma * np.ones(n_atoms)
+    staycounters = np.zeros(n_atoms)
+    T = T_0
+    for i in range(iters):
+        if i%50 == 0:
+            print("iteration",i,": minimum",np.min(fp), " max ",np.max(fp))
+        for a in range(n_atoms):
+            q = np.array([(atoms[a,j]+2*sigmas[a]*np.random.random()-sigmas[a]) for j in range(dim)])
+            fq = function(q)
+            if fq > fp[a]:
+                atoms[a,:] = q
+                fp[a] = fq
+                staycounters[a] = 0
+            elif np.random.random() < np.exp((fq - fp[a])/T):
+                atoms[a, :] = q
+                fp[a] = fq
+                staycounters[a] = 0
+            else:
+                staycounters[a] += 1
+                if staycounters[a] == 5:
+                    sigmas[a] /= 2
+                    staycounters[a] = 0
+        if i % 10 == 20-1:
+            evolve(atoms, dim, fp, 5*T, stepsigma, function)
+        T *= 1 + dTperT
+    max_ix = np.argmax(fp)
+    coords = atoms[max_ix,:]
+    print(coords)
+    print(fp)
+    return coords, fp[max_ix]
+
+def max_sim_ann_initialize(dim, n_atoms, pos_anchors):
+    anc_avr = np.average(pos_anchors, axis=0)
+    anc_sd = np.sqrt(np.average((pos_anchors[:,0]-anc_avr[0])**2 + (pos_anchors[:,1]-anc_avr[1])**2))
+    maxradius = 3 * anc_sd
+    coords = np.zeros((n_atoms, dim))
+    for i in range(n_atoms):
+        for j in range(dim):
+            coords[i, j] = anc_avr[j % 2] + 2 * maxradius * (np.random.random() - 0.5)
+    return coords
+
+def evolve(atoms, dim, fa, tempr, scale, function):
+    max_ix = np.argmax(fa)
+    max_fa = fa[max_ix]
+    for a in range(len(atoms)):
+        if np.random.random() > np.exp((fa[a] - max_fa)/tempr):
+            atoms[a] = np.array([(atoms[max_ix, j] + 2 * scale * np.random.random() - scale) for j in range(dim)])
+            fa[a] = function(atoms[a])
+
+def hammdist(a, b):
+    #ints a and b turned into bit sequences, how many differing bits?
+    xor_ab = a ^ b
 
 def loss(x1, y1, x2, y2):
     d = np.sqrt((x2 - x1) ** 2+ (y2 - y1)**2)
