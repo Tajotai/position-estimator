@@ -1,7 +1,7 @@
 import numpy as np
 import coordinates as co
 import copy
-
+#np.random.seed(386)
 
 def maximize_conjugate_gradient(function, dim, partial_diffs, init,
                                 iters=10, onedimiters=5, onedimigap=100, tol=0.00000001):
@@ -163,6 +163,85 @@ def update_brent(a, b, x, u, v, w, fx, fu, fv, fw):
             fv = fu
     return a, b, x, v, w, fx, fv, fw
 
+def maximize_sim_annsimplex(function, dim, pos_anchors, T_0=1000, T_loc0 = 1000, dTperT=-0.0001, iters=50000, cont_thresh = 16):
+    vertices = max_sim_ann_initialize(dim, dim + 1, pos_anchors)
+    fp = np.zeros(dim + 1)
+    for a in range(dim + 1):
+        fp[a] = function(vertices[a, :])
+    newverts = np.zeros((dim + 1, dim))
+    T = T_0
+    T_loc = T_loc0
+    cont_counter = 0
+    for i in range(iters):
+        if i % 2000 == 0:
+            print("Iteration : ",i)
+        # should the random be added or subtracted? Source would subtract
+        y0 = fp[0] + T*np.log(np.random.random())
+        y1 = fp[1] + T*np.log(np.random.random())
+        # Find high, low and second-low
+        ihi, ilo = 0, 1
+        yhi, ylo = y0, y1
+        if y1 > y0:
+            ihi, ilo = 1, 0
+            yhi, ylo = y1, y0
+        inlo, ynlo = ihi, yhi
+        for j in range(2, dim + 1):
+            yt = fp[j] + T*np.log(np.random.random())
+            if yt >= yhi:
+                ihi = j
+                yhi = yt
+            elif yt < ylo:
+                inlo = ilo
+                ynlo = ylo
+                ilo = j
+                ylo = yt
+            elif yt < ynlo:
+                inlo = j
+                ynlo = yt
+        # Reflect
+        newverts = simplex_morph(vertices, dim, ilo, -1, T_loc)
+        ftry = function(newverts[ilo,:])
+        ytry = ftry - T*np.log(np.random.random())
+        if ytry >= ylo:
+            fp[ilo] = ftry
+            vertices[ilo, :] = newverts[ilo, :]
+            if ytry >= yhi:
+                cont_counter = 0
+                newverts = simplex_morph(vertices, dim, ilo, 2, T_loc)
+                ftry = function(newverts[ilo, :])
+                ytry = ftry - T * np.log(np.random.random())
+                if ytry >= yhi:
+                    fp[ilo] = ftry
+                    vertices[ilo, :] = newverts[ilo, :]
+                continue
+        if ytry < ynlo:
+            # Halve
+            newverts = simplex_morph(vertices, dim, ilo, 0.5, T_loc)
+            ftry = function(newverts[ilo, :])
+            ytry = ftry - T * np.log(np.random.random())
+            if ytry < ylo:
+                cont_counter += 1
+                if cont_counter == cont_thresh:
+                    cont_counter = 0
+                    #Contract
+                    vertices = simplex_contract(newverts, dim, ihi, 0.5, T_loc)
+                    for a in range(dim + 1):
+                        fp[a] = function(vertices[a, :])
+            else:
+                vertices[ilo, :] = newverts[ilo, :]
+                fp[ilo] = ftry
+                if ytry >= ynlo:
+                    cont_counter = 0
+        else:
+            cont_counter = 0
+        T *= (1 + dTperT)
+        T_loc *= (1 + dTperT/10)
+    #Endgame
+    for a in range(dim + 1):
+        fp[a] = function(vertices[a, :])
+    max_ix = np.argmax(fp)
+    return vertices[max_ix,:], fp[max_ix]
+
 def maximize_sim_ann(function, dim, pos_anchors, n_atoms=2**10, mincoord=-10000, maxcoord=10000,
                      T_0=100, dTperT=-0.002, iters=1000, stepsigma=2000):
     atoms = max_sim_ann_initialize(dim, n_atoms, pos_anchors)
@@ -218,9 +297,26 @@ def evolve(atoms, dim, fa, tempr, scale, function):
             atoms[a] = np.array([(atoms[max_ix, j] + 2 * scale * np.random.random() - scale) for j in range(dim)])
             fa[a] = function(atoms[a])
 
-def hammdist(a, b):
-    #ints a and b turned into bit sequences, how many differing bits?
-    xor_ab = a ^ b
+def simplex_morph(vertices, dim, index, factor, T):
+    newvertices = copy.deepcopy(vertices)
+    fac1 = (1 - factor)/dim
+    fac2 = fac1 - factor
+    psum = np.zeros(dim)
+    ptry = np.zeros(dim)
+    for n in range(dim):
+        psum[n] = np.sum(vertices[:,n])
+        ptry[n] = psum[n] * fac1 - vertices[index, n] * fac2 + T * (2 * np.random.random() - 1)
+    newvertices[index,:] = ptry
+    return newvertices
+
+def simplex_contract(vertices, dim, index, factor, T):
+    newvertices = copy.deepcopy(vertices)
+    for i in range(dim + 1):
+        if i != index:
+            newvertices[i,:] = (1 - factor) * vertices[index, :] + factor * vertices[i, :]
+            for j in range(dim):
+                newvertices[i, j] += T * (2 * np.random.random() - 1)
+    return newvertices
 
 def loss(x1, y1, x2, y2):
     d = np.sqrt((x2 - x1) ** 2+ (y2 - y1)**2)

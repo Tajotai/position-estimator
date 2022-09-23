@@ -13,14 +13,14 @@ def main(args=None):
         sink_ix = 0
         coordfixer = False
         static = False
-        glob = True
+        glob = False
         half_netwidth = 1000
-        nr_of_nodes = 50
-        nr_of_anchors = 6
+        nr_of_nodes = 200
+        nr_of_anchors = 20
         maxrange = 750
-        sigma = 5
+        sigma = 10
         tx_pow = 100
-        iters = 10
+        iters = 50
     else:
         sink_ix = args[0]
         coordfixer = args[1]
@@ -34,33 +34,33 @@ def main(args=None):
         tx_pow = args[8]
         iters = args[9]
         plot_interval = args[10]
-    rd.seed(432789)
+    #rd.seed(432789)
     nodes = generate_nodes(nr_of_nodes, half_netwidth)
     if coordfixer:
         min = np.min([x[0]**2 + x[1]**2 for x in nodes])
         nodes = np.concatenate((nodes, np.array([((1/2)*np.sqrt(min), 0),
                                                  ((1/2)*np.sqrt(min), (1/2)*np.sqrt(min))], )), axis=0)
     has_anchors = bool(nr_of_anchors)
-    anchors = []
-    anchor_locs=[]
-    if has_anchors:
-        anchors = np.arange(nr_of_anchors)
-        anchor_locs = nodes[anchors]
     if static:
-        #nodes = np.array([[-712., -777.],[ 533.  ,  972.],[-699., -774.],[ 702.,  661.],[-335.,  994.],[ 366., -829.],
+        #nodes = np.array([[-712., -777.],[ 533 ,  972.],[-699., -774.],[ 702.,  661.],[-335.,  994.],[ 366., -829.],
         #                  [ 930., -533.],[ 382.,  518.],[-435., -566.],[ 423., -930.],[ 827.,  332.],[ 804.,  722.],
         #                  [-328.,  987.],[-388.,  601.],[-524., -551.],[ 978.,  538.],[ 794., -251.],[-498., -907.],
         #                  [ 101.,  658.], [ 586.,  435.],[-281.,  526.],[ 582., -730.],[-547.,   29.],[ 445., -507.],
         #                  [-578.,  501.],[ 273.88409957,    0.],[ 273.88409957,  273.88409957]])
-        nodes = np.array([[-547., -809.],[-217., -771.],[472., -464.], [-206.,  575.],[169.,  482.],[-150., -323.],
-                          [375., -449.],[ 61.,  614.],[848., -928.], [-5.,  500.], [-989., -785.], [-978., -343.],
-                          [952.,  270.], [793., -639.], [679., -271.], [-917., -178.], [-929.,  861.],[744., -756.],
-                            [-602.,   60.], [1.,  120.], [-192., -355.], [226., -200.], [443.,  888.],
-                         [-41., -861.], [327., -652.], [267.,  534.], [-797.,  694.], [612., -461.], [-206., -238.],
-                         [-358.,   28.], [637., -620.], [761., -691.], [-638.,  320.], [-770., -582.], [-622.,  585.],
-                         [744.,  481.], [476.,  279.], [215.,  761.], [819., -874.], [-998.,  866.], [-767., -444.],
-                         [-532.,  101.], [-638.,  997.], [473., -717.], [-940., -954.], [972.,  711.], [473.,  195.],
-                         [-77.,  329.], [-418.,  363.], [529.,  769.]])
+        nodes = np.array([[ 473,-947.],
+             [ 142,-835.],[ 875, 189.],[ 820, 748.],[-762, 331.],[ 125,-713.],[ 676, 262.],[ 229, -92.],
+             [ 651,-977.],[-698,-551.],[ 868,-809.],[  70, 654.],[-952, 562.],[  29,-149.],
+             [ 365, 528.],[ 915,  92.],[ 126, -41.],[-288, 987.],[-488, 577.],[ 172,-894.],
+             [ -24,-613.],[ 454,-101.],[ 107,-776.],[-576,-550.],[-811, 605.],[-496,-700.],
+             [-225,-431.],[ 946,-190.],[ 132, 885.],[-347, 596.],[ 305,-573.],[ 148, 702.],
+             [ 861, 475.],[-123,-368.],[ 309, 711.],[-603,-850.],[  49,-489.],[ 523,-908.],
+             [-414,-679.],[-661, 332.],[ 544, 996.],[ 641,-906.],[-450, 308.],[-800,-958.],
+             [-661,-444.],[-430, 999.],[-895,-884.],[-162,-203.],[-209, 307.],[-192,-524.]])
+    anchors = []
+    anchor_locs = []
+    if has_anchors:
+        anchors = np.arange(nr_of_anchors)
+        anchor_locs = nodes[anchors]
     dist = distances(nodes)
     # print(dist[30:40, 30:40])
     # sinkdist = sinkdistances(nodes, sink)
@@ -133,7 +133,7 @@ def signals_errorize(dist, sigma, tx_pow):
         sig[i] = pe.errored_signal_generate(d, sigma, tx_pow)
     return sig
 
-def netEstimateRound(est, ready, dist, detect, sinkdist=None, sinkdet=None, initial=False, anchors=[]):
+def netEstimateRound(est, ready, dist, detect, sinkdist=None, sinkdet=None, initial=False, anchors=[], tempr=5):
     newest = copy.deepcopy(est)
     newready = copy.deepcopy(ready)
     for i in range(dist.shape[0]):
@@ -157,6 +157,7 @@ def netEstimateRound(est, ready, dist, detect, sinkdist=None, sinkdet=None, init
             if len(dist_i) >= 3:
                 if i not in anchors:
                     newest[i] = pe.position_estimate_like(est_i, dist_i, pos_miss=miss_i)
+                    #newest[i] = pe.position_estimate_like_metro(est_i, dist_i, tempr, est[i])
                 newready.append(i)
     est = newest
     nr_added = copy.deepcopy(newready)
@@ -177,7 +178,6 @@ def detect(dist, sinkdist, rge):
         if sinkdist[i] <= rge:
             sinkdet[i] = True
     return det, sinkdet
-
 
 def firstreference(sinkdist, sinkdet, sink_ix=0):
     min_ix = 0
@@ -241,14 +241,16 @@ def net_estimate(dist_err, rge, iters, half_nw, sinkdist_err = None, nodes=None,
             if not det[i, j]:
                 dist_all[i, j] = ie.approx_range(hopcounts[i, j], rge)
     det_full = np.zeros(det.shape) + 1
+    t0 = 50
+    tempr = t0
     for i in range(iters - 1):
-        if i%5 == 0:
+        if i%50 == 0:
             print("iteration number:"+str(i))
         prev_est = copy.deepcopy(est)
         iter_ready = []
         while not allReady(iter_ready, dist_err.shape[0], required=ready):
             # est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det, sinkdist_err, sinkdet)
-            est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det_full, anchors=anchors)
+            est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det_full, anchors=anchors, tempr=tempr)
         if nodes is not None:
             #fixed_est = fe.fix_est(est, ref1, ref2, nodes[ref1], nodes[ref2])
             location_errors = fe.get_location_errors(nodes, est)
@@ -256,7 +258,9 @@ def net_estimate(dist_err, rge, iters, half_nw, sinkdist_err = None, nodes=None,
             #plot_pos(nodes, est, mean_location_error, half_nw, anchors=anchors, mode='save', index=i)
         est_diff = est - prev_est
         mean_diff = np.average(fe.get_location_errors(est_diff, np.zeros(est_diff.shape)))
-        print("Estimation diff "+str(i)+" "+str(mean_diff))
+        #print("Estimation diff "+str(i)+" "+str(mean_diff))
+        #tempr *= (1 - 0.0005)
+        tempr = t0 * ((iters - i)/iters) ** 4
     return det, est, ref1, ref2
 
 def net_estimate_global(dist_err, rge, anchor_locs, n_anc, init_est = None):

@@ -3,7 +3,7 @@ import random as rd
 import coordinates as co
 import maximize as mx
 import util
-np.random.seed(386)
+#np.random.seed(4356734)
 
 def distance_bias_multiplier(sigma, gamma):
     return 10 ** (np.log(10) * (sigma ** 2)/(200 * (gamma ** 2)))
@@ -222,7 +222,7 @@ def position_estimate_like(pos_det, dist, pos_miss=None, maxrange = np.inf):
     return xy_max
 
 def position_estimate_like_metro(pos_det, dist, tempr, init, pos_miss=None, maxrange = np.inf,
-                                 metro_iters=2**8, metroscale=500):
+                                 metro_iters=2**5, metroscale=500):
     losses = calculate_path_loss(dist)
     xi = pos_det[:, 0]
     yi = pos_det[:, 1]
@@ -237,7 +237,7 @@ def position_estimate_like_metro(pos_det, dist, tempr, init, pos_miss=None, maxr
         x = posx + (np.random.random() - 0.5) * metroscale
         y = posy + (np.random.random() - 0.5) * metroscale
         fq = like(x, y, losses, xi, yi)
-        if fq > fp or np.random.random() > np.exp((fq - fp)/tempr):
+        if fq > fp or np.random.random() < np.exp((fq - fp)/tempr):
             posx, posy, fp = x, y, fq
     return np.array([posx, posy])
 
@@ -253,7 +253,8 @@ def position_estimate_global(det, dist, n_anc, pos_anchors):
                                         cat_pos(pos_anchors[:,1], x[1::2], n_anc, n_x), losses, det, n_anc)
         globpartials.append(ddxi_gl)
     # init = np.reshape(init_est[n_anc:,:], (2 * (n_x - n_anc)))
-    est_raw, mins = mx.maximize_sim_ann(globlike_, 2 * (n_x - n_anc), pos_anchors)
+    # est_raw, mins = mx.maximize_sim_ann(globlike_, 2 * (n_x - n_anc), pos_anchors)
+    est_raw, mins = mx.maximize_sim_annsimplex(globlike_, 2 * (n_x - n_anc), pos_anchors)
     est = np.reshape(est_raw, (n_x - n_anc, 2))
     return np.concatenate((pos_anchors,est))
 
