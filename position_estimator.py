@@ -8,7 +8,7 @@ import util
 def distance_bias_multiplier(sigma, gamma):
     return 10 ** (np.log(10) * (sigma ** 2)/(200 * (gamma ** 2)))
 
-def calculate_path_loss(dist):
+def calculate_path_loss(dist, gamma=2, P0=41.99020831627663):
     return 2 * 10 * (np.log10(dist) + np.log10((4 * np.pi) / 0.0999308193333333))
 
 def distance_error_generate(r, sigma, tx_pow, bias=True):
@@ -275,6 +275,13 @@ def like(x, y, losses, xi, yi, x_miss=None, y_miss=None, maxrange = np.inf):
     #return det + nondet
     return det
 
+def like2(x, y, losses, xi, yi, sigmasq, P0, gamma, x_miss=None, y_miss=None, maxrange = np.inf):
+    sq_loss_dev = (losses - loss(x, y, xi, yi))**2
+    det = -np.sum(sq_loss_dev/(2 * sigmasq))
+    nondet = 0 if (x_miss is None) else np.sum(logPhi_approx(x, y, x_miss, y_miss, maxrange))
+    #return det + nondet
+    return det
+
 def partial_x(x, y, losses, xi, yi):
     det = np.sum(np.log(10) * (x - xi)* (losses - loss(x, y, xi, yi)) /((x - xi)**2 + (y - yi)**2))
     return det
@@ -283,6 +290,7 @@ def partial_y(x, y, losses, xi, yi):
     det = np.sum(np.log(10) * (y - yi)* (losses - loss(x, y, xi, yi)) /((x - xi)**2 + (y - yi)**2))
     return det
 
+def partial_P0(x, y, losses, xi, yi)
 def globlike(n_anc, x, y, losses, det):
     # Currently sigmaless
     sum = 0
