@@ -156,7 +156,7 @@ def netEstimateRound(est, ready, dist, detect, sinkdist=None, sinkdet=None, init
             miss_i = np.array(miss_i)
             if len(dist_i) >= 3:
                 if i not in anchors:
-                    newest[i] = pe.position_estimate_like(est_i, dist_i, pos_miss=miss_i)
+                    newest[i] = pe.position_estimate_like2(est_i, dist_i, pos_miss=miss_i)
                     #newest[i] = pe.position_estimate_like_metro(est_i, dist_i, tempr, est[i])
                 newready.append(i)
     est = newest

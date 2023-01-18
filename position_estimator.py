@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.stats as st
 import random as rd
 import coordinates as co
 import maximize as mx
@@ -8,8 +9,8 @@ import util
 def distance_bias_multiplier(sigma, gamma):
     return 10 ** (np.log(10) * (sigma ** 2)/(200 * (gamma ** 2)))
 
-def calculate_path_loss(dist, gamma=2, P0=41.99020831627663):
-    return 2 * 10 * (np.log10(dist) + np.log10((4 * np.pi) / 0.0999308193333333))
+def calculate_path_loss(dist, P0=41.99020831627663, gamma=2):
+    return 10 * gamma * (np.log10(dist) + P0)
 
 def distance_error_generate(r, sigma, tx_pow, bias=True):
     if r == 0:
@@ -55,22 +56,6 @@ def calculate_distance_2(rx_pow, tx_pow, mu, beta, gain_tx, gain_rx):
     :return: distance in meters
     '''
     return 10 ** ((tx_pow - rx_pow + gain_tx + gain_rx)/20 + np.log10(0.0999308193333333 / 4*np.pi*mu * beta))
-
-def calculate_distance_with_ref(rx_pow, tx_pow, mu, beta):
-    '''
-    gives the distance by transmission and receiving power of the signal,
-    using general log-distance path loss model with reference distance of
-    1 meter. Reference distance path loss has to be determined in its
-    own function, ref_dist_pl(). Free space is assumed, thus the path loss exponent is 2.
-
-    :param rx_pow: receiver power in dB
-    :param tx_pow: transmitter power in dB
-    :return: distance in meters
-    '''
-    return 1 * 10 ** ((tx_pow - rx_pow - ref_dist_pl(mu, beta)) / 20)
-
-def ref_dist_pl(mu, beta):
-    return -22.8013420153 + 20 * np.log10(mu*beta)
 
 def nonbiased_calculate_distance(rx_pow, tx_pow, mu, beta, sigma):
     '''
@@ -221,6 +206,32 @@ def position_estimate_like(pos_det, dist, pos_miss=None, maxrange = np.inf):
                                          onedimiters=5, onedimigap=500)
     return xy_max
 
+def position_estimate_like2(pos_det, dist, pos_miss=None, maxrange = np.inf):
+    losses = calculate_path_loss(dist)
+    xi = pos_det[:, 0]
+    yi = pos_det[:, 1]
+    xi_miss = None
+    yi_miss = None
+    if pos_miss is not None and pos_miss.shape[0] != 0:
+        xi_miss = pos_miss[:, 0]
+        yi_miss = pos_miss[:, 1]
+    like_ = lambda x: like2(x[0], x[1], losses, xi, yi, x[2], x[3], x[4], xi_miss, yi_miss, maxrange)
+    #ddx_like = lambda x: (like_(np.array([x[0] + 0.0001, x[1]])) - like_(x)) * 10000
+    #ddy_like = lambda x: (like_(np.array([x[0], x[1] + 0.0001])) - like_(x)) * 10000
+    ddx_like = lambda x: partial_x_2(x[0], x[1], losses, xi, yi, x[2], x[3], x[4])
+    ddy_like = lambda x: partial_y_2(x[0], x[1], losses, xi, yi, x[2], x[3], x[4])
+    ddsq_like = lambda x: partial_sigmasq(x[0], x[1], losses, xi, yi, x[2], x[3], x[4])
+    ddP0_like = lambda x: partial_P0(x[0], x[1], losses, xi, yi, x[2], x[3], x[4])
+    ddgam_like = lambda x: partial_gamma(x[0], x[1], losses, xi, yi, x[2], x[3], x[4])
+    init = np.zeros(5)
+    init[:2] = pe_like_initialize(pos_det, dist)
+    init[2] = 10
+    init[3] = 40
+    init[4] = 2
+    xy_max, _ = mx.maximize_conjugate_gradient(like_, 5, [ddx_like, ddy_like], init, iters=10,
+                                         onedimiters=5, onedimigap=500)
+    return xy_max[:2]
+
 def position_estimate_like_metro(pos_det, dist, tempr, init, pos_miss=None, maxrange = np.inf,
                                  metro_iters=2**5, metroscale=500):
     losses = calculate_path_loss(dist)
@@ -264,9 +275,9 @@ def cat_pos(anc, x, n_anc, n_x):
     ret[n_anc:] = x
     return ret
 
-def loss(x1, y1, x2, y2):
+def loss(x1, y1, x2, y2, P0=41.99020831627663, gamma=2):
     d = np.sqrt((x2 - x1) ** 2+ (y2 - y1)**2)
-    return calculate_path_loss(d)
+    return calculate_path_loss(d, gamma=gamma, P0=P0)
 
 def like(x, y, losses, xi, yi, x_miss=None, y_miss=None, maxrange = np.inf):
     sq_loss_dev = (losses - loss(x, y, xi, yi))**2
@@ -276,9 +287,9 @@ def like(x, y, losses, xi, yi, x_miss=None, y_miss=None, maxrange = np.inf):
     return det
 
 def like2(x, y, losses, xi, yi, sigmasq, P0, gamma, x_miss=None, y_miss=None, maxrange = np.inf):
-    sq_loss_dev = (losses - loss(x, y, xi, yi))**2
-    det = -np.sum(sq_loss_dev/(2 * sigmasq))
-    nondet = 0 if (x_miss is None) else np.sum(logPhi_approx(x, y, x_miss, y_miss, maxrange))
+    sq_loss_dev = (losses - loss(x, y, xi, yi, P0=P0, gamma=gamma))**2
+    det = -np.sum(sq_loss_dev)/(2 * sigmasq)
+    nondet = 0 if (x_miss is None) else np.sum(logPhi(x, y, x_miss, y_miss, maxrange, np.sqrt(sigmasq), P0, gamma))
     #return det + nondet
     return det
 
@@ -290,7 +301,29 @@ def partial_y(x, y, losses, xi, yi):
     det = np.sum(np.log(10) * (y - yi)* (losses - loss(x, y, xi, yi)) /((x - xi)**2 + (y - yi)**2))
     return det
 
-def partial_P0(x, y, losses, xi, yi)
+def partial_x_2(x, y, P0, gamma, sigmasq, losses, xi, yi):
+    det = np.sum(5 * gamma * (x - xi) *
+                 (losses - loss(x, y, xi, yi, P0=P0, gamma=gamma))/(sigmasq * ((x - xi)**2 + (y - yi)**2)))
+    return det
+
+def partial_y_2(x, y, P0, gamma, sigmasq, losses, xi, yi):
+    det = np.sum(5 * gamma * (y - yi) *
+                 (losses - loss(x, y, xi, yi, P0=P0, gamma=gamma))/(sigmasq * ((x - xi)**2 + (y - yi)**2)))
+    return det
+
+def partial_P0(x, y, P0, gamma, sigmasq, losses, xi, yi):
+    det = np.sum((losses - loss(x, y, xi, yi, P0=P0, gamma=gamma)) /(2 * sigmasq))
+    return det
+
+def partial_sigmasq(x, y, P0, gamma, sigmasq, losses, xi, yi):
+    det = np.sum((losses - loss(x, y, xi, yi, P0=P0, gamma=gamma)) ** 2/(2 * sigmasq ** 2))
+    return det
+
+def partial_gamma(x, y, P0, gamma, sigmasq, losses, xi, yi):
+    E_loss = loss(x, y, xi, yi, P0=P0, gamma=gamma)
+    det = np.sum((losses - E_loss) * E_loss/(2 * gamma * sigmasq))
+    return det
+
 def globlike(n_anc, x, y, losses, det):
     # Currently sigmaless
     sum = 0
@@ -321,6 +354,12 @@ def logPhi_approx(x, y, x_m, y_m, maxrange, sigma=1):
     pathloss = loss(x, y, x_m, y_m)
     thresh_loss = calculate_path_loss(maxrange)
     return 2 * np.min(np.array([(thresh_loss - pathloss)/np.sqrt(np.pi), np.zeros(x_m.shape[0]) + np.log(2)]), axis=0)
+
+def logPhi(x, y, x_m, y_m, maxrange, sigma, P0, gamma):
+    pathloss = loss(x, y, x_m, y_m)
+    thresh_loss = calculate_path_loss(maxrange, P0=P0, gamma=gamma)
+    minusstand = (thresh_loss - path_loss)/sigma
+    return np.log(st.norm.cdf(minusstand))
 
 def pe_like_initialize(pos, dist):
     # Finds the three nodes with smallest distances and trilaterates through them

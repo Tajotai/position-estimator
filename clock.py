@@ -4,6 +4,7 @@ import net_estimator as ne
 
 #Speed of light, meters per second
 c = 299792458
+np.random.seed(13)
 
 class Clock:
     def __init__(self, lam, br, wh):
@@ -27,6 +28,12 @@ class CorrectedClock(Clock):
         self.h = h
         self.correction = 0
         self.delay_compensation = 0
+        self.n = 1
+
+    def update_delay_compensation(self, est):
+        self.delay_compensation = ((self.n - 1)/self.n) * self.delay_compensation + 1/self.n * est
+        self.n += 1
+        return self.delay_compensation
 
     def run(self, time_int, rx_times, tx_times):
         raw_time = self.advance(time_int)
@@ -61,17 +68,17 @@ def sort_tx_indices(delays, ind):
             break
     return indices
 
-def create_tree(detect, dist, master_ix):
+def create_tree(detect, dist, grandmaster_ix):
     masters = np.zeros(detect.shape[0], dtype=int) - 1
     nr_of_slaves = np.zeros(detect.shape[0], dtype=int)
     delay_request_stamps = np.zeros(detect.shape[0])
     layer = []
-    newlayer = [master_ix]
+    newlayer = [grandmaster_ix]
     while len(newlayer) > 0:
         layer = newlayer
         newlayer = []
         for n in range(detect.shape[0]):
-            if n == master_ix:
+            if n == grandmaster_ix:
                 continue
             min_ix = -1
             min = np.inf
@@ -84,7 +91,7 @@ def create_tree(detect, dist, master_ix):
                     masters[n] = min_ix
                     newlayer.append(n)
                     nr_of_slaves[min_ix] += 1
-                    delay_request_stamps[n] = nr_of_slaves[min_ix]
+                    delay_request_stamps[n] = n
     return masters, delay_request_stamps
 
 def estimate_propdelay(delay1, delay2):
@@ -93,14 +100,14 @@ def estimate_propdelay(delay1, delay2):
     return eps, propdelay
 
 if __name__ == '__main__':
-    nr_of_clocks = 36
-    clockpositions = clocksquare(6, 6, 500)
-    master_ix = 0
+    nr_of_clocks = 9
+    clockpositions = clocksquare(3, 3, 500)
+    grandmaster_ix = 0
     distances = ne.distances(clockpositions)
     detects, _ = ne.detect(distances, np.array([]), 750)
     fs = 1000
-    stamp_intval = 0.0001
-    times = 5000
+    stamp_intval = 0.00005
+    times = 50000
 
     whitesigmasq = 0.00001
     brownsigmasq = 0.1
@@ -109,39 +116,42 @@ if __name__ == '__main__':
     brownsigmasq_master = 0.001
     freqlambdasq_master = 0.001
 
-    masters, delay_request_stamps = create_tree(detects, distances, master_ix)
+    masters, delay_request_stamps = create_tree(detects, distances, grandmaster_ix)
     max_stamp = max(delay_request_stamps)
     delays = detects * distances / c
     clocks = []
     for i in range(nr_of_clocks):
-        if i == master_ix:
-            clocks.append(CorrectedClock(0.000001, 0.000001, 0.00000001, 0.15, 0.75))
+        if i == grandmaster_ix:
+            clocks.append(CorrectedClock(0.00000000000001, 0.0000000000000001, 0.000000000000000001, 0.15, 0.75))
             #clocks.append(Clock(0.0001, 0.0, 0.0))
         else:
-            clocks.append(CorrectedClock(0.0001, 0.0001, 0.00000001, 0.15, 0.75))
+            clocks.append(CorrectedClock(0.00000000000001, 0.00000000000001, 0.000000000000001, 0.15, 0.75))
             #clocks.append(Clock(0.0001, 0.000, 0.0))
     tx_times = np.zeros(nr_of_clocks)
     prop_delay_ests = np.zeros(nr_of_clocks)
     delay_1 = np.zeros(nr_of_clocks)
     delay_2 = np.zeros(nr_of_clocks)
-    timediffs = np.zeros((times, nr_of_clocks))
+    timediffs = np.zeros((times, nr_of_clocks, nr_of_clocks))
     time_errors = np.zeros(times)
+    delay_advances = np.zeros(nr_of_clocks)
     for j, clock in enumerate(clocks):
         tx_times[j] = clock.advance(max_stamp * stamp_intval)
     for i in range(times):
         for j, clock in enumerate(clocks):
-            tx_times[j] = clock.advance(0.001 - max_stamp * stamp_intval)
+            tx_times[j] = clock.advance(0.001 - (max_stamp + 1) * stamp_intval)
         for j, clock in enumerate(clocks):
             m_ix = masters[j]
             tx_time = tx_times[m_ix]
-            rx_time = clock.advance(delays[m_ix, j])
-            # Clock nr master_ix is master
-            delay_1[j] = rx_time - tx_time
+            if j != grandmaster_ix:
+                rx_time = clock.advance(delays[m_ix, j])
+                delay_advances[j] = delays[m_ix, j]
+                # Clock nr grandmaster_ix is grandmaster
+                delay_1[j] = rx_time - tx_time
            # delreq_txtime = clock.advance(0.0001 - delays[m_ix, j])
         for t in np.arange(1, max_stamp + 1):
-            delay_advances = np.zeros(nr_of_clocks)
             for j, clock in enumerate(clocks):
                 tx_times[j] = clock.advance(stamp_intval - delay_advances[j])
+            delay_advances = np.zeros(nr_of_clocks)
             for j, clock in enumerate(clocks):
                 if delay_request_stamps[j] == t:
                     m_ix = masters[j]
@@ -151,17 +161,33 @@ if __name__ == '__main__':
                     delay_advances[m_ix] += delays[m_ix, j]
                     delay_2[j] = rx_time - tx_time
                     eps, prop_delay_ests[j] = estimate_propdelay(delay_1[j], delay_2[j])
-                    if j == master_ix or not isinstance(clock, CorrectedClock):
-                        time = clock.get_time
+                    if j == grandmaster_ix or not isinstance(clock, CorrectedClock):
+                        time = clock.get_time()
                     else:
-                        clock.delay_compensation = prop_delay_ests[j]
+                        clock.update_delay_compensation(prop_delay_ests[j])
                         time = clock.correct(eps, 0)
         for j, clock in enumerate(clocks):
-            if j == master_ix or not isinstance(clock, CorrectedClock):
-                time_errors[i] = clock.get_time() - (i + 1) * (1 / fs)
-            timediffs[i, j] = clock.get_time() - clocks[master_ix].time
+            tx_times[j] = clock.advance(stamp_intval - delay_advances[j])
+        for j, clock1 in enumerate(clocks):
+            for k, clock2 in enumerate(clocks):
+                if j == grandmaster_ix or not isinstance(clock1, CorrectedClock):
+                    time_errors[i] = clock1.get_time() - (i + 1) * (1 / fs)
+                timediffs[i, j, k] = clock1.get_time() - clock2.get_time()
+    print(masters)
+    for clo in clocks:
+        print(clo.delay_compensation * c)
+    print("0 and 1",np.average((timediffs[:, 0, 1]) ** 2))
+    print("0 and 2",np.average((timediffs[:, 0, 2]) ** 2))
+    print("4 and 5", np.average((timediffs[:, 4, 5]) ** 2))
+    print("4 and 8", np.average((timediffs[:, 4, 8]) ** 2))
+    print("4 and 7", np.average((timediffs[:, 4, 7]) ** 2))
+    print("7 and 8", np.average((timediffs[:, 7, 8]) ** 2))
+    print("5 and 8", np.average((timediffs[:, 5, 8]) ** 2))
+    print("0 and 8", np.average((timediffs[:, 0, 8]) ** 2))
+    print("2 and 8", np.average((timediffs[:, 2, 8]) ** 2))
+
     plt.figure(0)
-    plt.plot(timediffs[0:times:100,:])
+    plt.plot(timediffs[0:times:100,:, grandmaster_ix])
     plt.figure(1)
     plt.plot(time_errors)
     plt.show()
