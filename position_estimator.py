@@ -6,11 +6,14 @@ import maximize as mx
 import util
 #np.random.seed(4356734)
 
+global penalty_constant
+penalty_constant = 1000000000
+
 def distance_bias_multiplier(sigma, gamma):
     return 10 ** (np.log(10) * (sigma ** 2)/(200 * (gamma ** 2)))
 
 def calculate_path_loss(dist, P0=41.99020831627663, gamma=2):
-    return 10 * gamma * (np.log10(dist) + P0)
+    return 10 * gamma * (np.log10(dist)) + P0
 
 def distance_error_generate(r, sigma, tx_pow, bias=True):
     if r == 0:
@@ -32,7 +35,7 @@ def errored_signal_generate(r, sigma):
     powerror = np.random.normal(0, sigma)
     return powdiff + powerror
 
-def calculate_distance(rx_pow, tx_pow):
+def calculate_distance(rx_pow, tx_pow, P0=41.99020831627663):
     '''
     gives the distance by transmission and receiving power of the signal,
     using the Friis model for path loss in free space. The constant
@@ -42,7 +45,7 @@ def calculate_distance(rx_pow, tx_pow):
     :param tx_pow: transmitter power in dB
     :return: distance in meters
     '''
-    return 10 ** ((tx_pow - rx_pow)/20 + np.log10(0.0999308193333333 /(4 * np.pi)))
+    return 10 ** ((tx_pow - rx_pow - P0)/20)
 
 def calculate_distance_2(rx_pow, tx_pow, mu, beta, gain_tx, gain_rx):
     '''
@@ -206,8 +209,26 @@ def position_estimate_like(pos_det, dist, pos_miss=None, maxrange = np.inf):
                                          onedimiters=5, onedimigap=500)
     return xy_max
 
-def position_estimate_like2(pos_det, dist, pos_miss=None, maxrange = np.inf):
+def get_params(params):
+    sigma_prior = 0
+    P0_prior = 0
+    gamma_prior = 0
+    sigma_sigma = np.inf
+    P0_sigma = np.inf
+    gamma_sigma = np.inf
+    if params is not None:
+        sigma_prior = params[0]
+        P0_prior = params[1]
+        gamma_prior = params[2]
+        sigma_sigma = params[3]
+        P0_sigma = params[4]
+        gamma_sigma = params[5]
+    return sigma_prior, P0_prior, gamma_prior, sigma_sigma, P0_sigma, gamma_sigma
+
+def position_estimate_like2(pos_det, dist, params=None, pos_miss=None, maxrange = np.inf):
     losses = calculate_path_loss(dist)
+    sigmasq_prior, P0_prior, gamma_prior, sigmasq_sigma, P0_sigma, gamma_sigma = get_params(params)
+
     xi = pos_det[:, 0]
     yi = pos_det[:, 1]
     xi_miss = None
@@ -215,22 +236,26 @@ def position_estimate_like2(pos_det, dist, pos_miss=None, maxrange = np.inf):
     if pos_miss is not None and pos_miss.shape[0] != 0:
         xi_miss = pos_miss[:, 0]
         yi_miss = pos_miss[:, 1]
-    like_ = lambda x: like2(x[0], x[1], losses, xi, yi, x[2], x[3], x[4], xi_miss, yi_miss, maxrange)
-    #ddx_like = lambda x: (like_(np.array([x[0] + 0.0001, x[1]])) - like_(x)) * 10000
-    #ddy_like = lambda x: (like_(np.array([x[0], x[1] + 0.0001])) - like_(x)) * 10000
-    ddx_like = lambda x: partial_x_2(x[0], x[1], losses, xi, yi, x[2], x[3], x[4])
-    ddy_like = lambda x: partial_y_2(x[0], x[1], losses, xi, yi, x[2], x[3], x[4])
-    ddsq_like = lambda x: partial_sigmasq(x[0], x[1], losses, xi, yi, x[2], x[3], x[4])
-    ddP0_like = lambda x: partial_P0(x[0], x[1], losses, xi, yi, x[2], x[3], x[4])
-    ddgam_like = lambda x: partial_gamma(x[0], x[1], losses, xi, yi, x[2], x[3], x[4])
+    like_ = lambda x: like2b(x[0], x[1], losses, xi, yi, x[2], x[3], x[4], sigmasq_prior, P0_prior, gamma_prior,
+                             sigmasq_sigma, P0_sigma, gamma_sigma, x_miss=xi_miss, y_miss=yi_miss, maxrange=maxrange)
+    ddx_like = lambda x: (like_(np.array([x[0] + 0.000001, x[1], x[2], x[3], x[4]])) - like_(x)) * 1000000
+    ddy_like = lambda x: (like_(np.array([x[0], x[1] + 0.000001, x[2], x[3], x[4]])) - like_(x)) * 1000000
+    ddsq_like = lambda x: (like_(np.array([x[0], x[1], x[2]+0.000001, x[3], x[4]])) - like_(x)) * 1000000
+    ddP0_like = lambda x: (like_(np.array([x[0], x[1], x[2], x[3] + 0.000001, x[4]])) - like_(x)) * 1000000
+    ddgam_like = lambda x: (like_(np.array([x[0], x[1], x[2], x[3], x[4] + 0.000001])) - like_(x)) * 1000000
+    #ddx_like = lambda x: partial_x_2(x[0], x[1], x[2], x[3], x[4], losses, xi, yi)
+    #ddy_like = lambda x: partial_y_2(x[0], x[1], x[2], x[3], x[4], losses, xi, yi)
+    #ddsq_like = lambda x: partial_sigmasq(x[0], x[1], x[2], x[3], x[4], losses, xi, yi, sigmasq_prior, sigmasq_sigma)
+    #ddP0_like = lambda x: partial_P0(x[0], x[1], x[2], x[3], x[4], losses, xi, yi, P0_prior, P0_sigma)
+    #ddgam_like = lambda x: partial_gamma(x[0], x[1], x[2], x[3], x[4], losses, xi, yi, gamma_prior, gamma_sigma)
     init = np.zeros(5)
     init[:2] = pe_like_initialize(pos_det, dist)
-    init[2] = 10
-    init[3] = 40
-    init[4] = 2
-    xy_max, _ = mx.maximize_conjugate_gradient(like_, 5, [ddx_like, ddy_like], init, iters=10,
-                                         onedimiters=5, onedimigap=500)
-    return xy_max[:2]
+    init[2] = 10 if sigmasq_prior == 0 else sigmasq_prior
+    init[3] = 40 if P0_prior == 0 else P0_prior
+    init[4] = 2 if gamma_prior == 0 else gamma_prior
+    xy_max, _ = mx.maximize_conjugate_gradient(like_, 5, [ddx_like, ddy_like, ddsq_like, ddP0_like, ddgam_like], init, iters=50,
+                                         onedimiters=50, onedimigap=500)
+    return xy_max[:2], xy_max[2], xy_max[3], xy_max[4]
 
 def position_estimate_like_metro(pos_det, dist, tempr, init, pos_miss=None, maxrange = np.inf,
                                  metro_iters=2**5, metroscale=500):
@@ -293,6 +318,18 @@ def like2(x, y, losses, xi, yi, sigmasq, P0, gamma, x_miss=None, y_miss=None, ma
     #return det + nondet
     return det
 
+def like2b(x, y, losses, xi, yi, sigmasq, P0, gamma, sigmasq_prior, P0_prior, gamma_prior, sigmasq_sigma, P0_sigma,
+           gamma_sigma, x_miss=None, y_miss=None, maxrange = np.inf):
+    sq_loss_dev = (losses - loss(x, y, xi, yi, P0=P0, gamma=gamma))**2
+    det = -np.sum(sq_loss_dev)/(2 * sigmasq)
+    offprior = -(sigmasq - sigmasq_prior)**2/(2 * sigmasq_sigma) - (P0 - P0_prior)**2/(2 * P0_sigma) \
+               - (gamma - gamma_prior)**2/(2 * gamma_sigma)
+    pen_sigmasq = penalty_constant * sigmasq if sigmasq < 0 else 0
+    pen_gamma = penalty_constant * (gamma - 1) if gamma < 1 else 0
+    nondet = 0 if (x_miss is None) else np.sum(logPhi(x, y, x_miss, y_miss, maxrange, np.sqrt(sigmasq), P0, gamma))
+    #return det + nondet
+    return det + offprior + pen_sigmasq + pen_gamma
+
 def partial_x(x, y, losses, xi, yi):
     det = np.sum(np.log(10) * (x - xi)* (losses - loss(x, y, xi, yi)) /((x - xi)**2 + (y - yi)**2))
     return det
@@ -311,18 +348,23 @@ def partial_y_2(x, y, P0, gamma, sigmasq, losses, xi, yi):
                  (losses - loss(x, y, xi, yi, P0=P0, gamma=gamma))/(sigmasq * ((x - xi)**2 + (y - yi)**2)))
     return det
 
-def partial_P0(x, y, P0, gamma, sigmasq, losses, xi, yi):
+def partial_P0(x, y, sigmasq, P0, gamma, losses, xi, yi, P0_prior, P0_sigma):
     det = np.sum((losses - loss(x, y, xi, yi, P0=P0, gamma=gamma)) /(2 * sigmasq))
-    return det
+    offprior = (P0_prior - P0)/(P0_sigma)
+    return det + offprior
 
-def partial_sigmasq(x, y, P0, gamma, sigmasq, losses, xi, yi):
+def partial_sigmasq(x, y, sigmasq, P0, gamma, losses, xi, yi, sigmasq_prior, sigmasq_sigma):
     det = np.sum((losses - loss(x, y, xi, yi, P0=P0, gamma=gamma)) ** 2/(2 * sigmasq ** 2))
-    return det
+    offprior = (sigmasq_prior - sigmasq) / (sigmasq_sigma)
+    pen = penalty_constant if sigmasq < 0 else 0
+    return det + offprior + pen
 
-def partial_gamma(x, y, P0, gamma, sigmasq, losses, xi, yi):
+def partial_gamma(x, y, sigmasq, P0, gamma, losses, xi, yi, gamma_prior, gamma_sigma):
     E_loss = loss(x, y, xi, yi, P0=P0, gamma=gamma)
     det = np.sum((losses - E_loss) * E_loss/(2 * gamma * sigmasq))
-    return det
+    offprior = (gamma_prior - gamma) / (gamma_sigma)
+    pen = penalty_constant if gamma < 0 else 0
+    return det + offprior + pen
 
 def globlike(n_anc, x, y, losses, det):
     # Currently sigmaless
@@ -343,7 +385,7 @@ def globpartial(index, var_is_x, x, y, losses, det, n_anc):
         vec = y
     sum = 0
     for j in range(len(x)):
-        if j==index:
+        if j == index:
             continue
         elif det[index, j]:
             num = np.log(10) * (vec[index] - vec[j]) * (losses[index, j] - loss(x[index], y[index], x[j], y[j]))

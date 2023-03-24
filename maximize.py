@@ -4,7 +4,7 @@ import copy
 #np.random.seed(386)
 
 def maximize_conjugate_gradient(function, dim, partial_diffs, init,
-                                iters=10, onedimiters=5, onedimigap=100, tol=0.00000001):
+                                iters=50, onedimiters=50, onedimigap=100, tol=0.00000001):
     '''
     Maximizes the function numerically using conjugate gradient method
 

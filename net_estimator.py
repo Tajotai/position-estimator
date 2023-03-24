@@ -8,32 +8,7 @@ import matplotlib.markers as mrks
 import matplotlib.pyplot as plt
 import initial_estimate as ie
 
-def main(args=None):
-    if args is None:
-        sink_ix = 0
-        coordfixer = False
-        static = False
-        glob = False
-        half_netwidth = 1000
-        nr_of_nodes = 500
-        nr_of_anchors = 20
-        maxrange = 750
-        sigma = 10
-        tx_pow = 100
-        iters = 50
-    else:
-        sink_ix = args[0]
-        coordfixer = args[1]
-        static = args[2]
-        glob = True
-        half_netwidth = args[3]
-        nr_of_nodes = args[4]
-        nr_of_anchors = args[5]
-        maxrange = args[6]
-        sigma = args[7]
-        tx_pow = args[8]
-        iters = args[9]
-        plot_interval = args[10]
+def main(index, sink_ix, coordfixer, static, glob, half_netwidth, nr_of_nodes, nr_of_anchors, maxrange, sigma, tx_pow, iters):
     #rd.seed(432789)
     nodes = generate_nodes(nr_of_nodes, half_netwidth)
     if coordfixer:
@@ -77,12 +52,24 @@ def main(args=None):
     else:
         det, est, ref1, ref2 = net_estimate(dist_err, maxrange, iters, half_netwidth, nodes=nodes, anchors=anchors,
                                             anchor_locs=anchor_locs)
+    if est is None:
+        return 0, nr_of_nodes - nr_of_anchors
     #det, est = net_estimate_global()
     fixed_est = est
     if not has_anchors:
         fixed_est = fe.fix_est4(est, nodes, ref1, ref2)
     location_errors = fe.get_location_errors(nodes, fixed_est)
-    mean_location_error = np.average(location_errors)*nr_of_nodes/(nr_of_nodes + nr_of_anchors)
+    not_classified = np.isnan(location_errors)
+    classified = 1 - not_classified
+    print(classified)
+    nr_of_classified = sum(classified)
+    nr_of_notclassified = sum(not_classified)
+    class_loc_errors = []
+    for n in range(nodes.shape[0]):
+        if classified[n] and n not in anchors:
+            class_loc_errors.append(location_errors[n])
+    class_loc_errors = np.array(class_loc_errors)
+    mean_location_error = np.average(class_loc_errors)
 
     #print final log-likelihood
     det, _ = detect(dist_err, np.zeros(0), maxrange)
@@ -96,8 +83,8 @@ def main(args=None):
     #print("original: "+str(nodes))
     #print("error: "+str(fixed_est - nodes))
 
-    plot_pos(nodes, fixed_est, mean_location_error, half_netwidth, detect=None, anchors=anchors, mode='save')
-
+    #plot_pos(nodes, fixed_est, mean_location_error, half_netwidth, detect=None, anchors=anchors, mode='save', index=index)
+    return mean_location_error, nr_of_notclassified
 
 def generate_nodes(n, radius):
     nodes = np.zeros((n, 2))
@@ -133,39 +120,53 @@ def signals_errorize(dist, sigma, tx_pow):
         sig[i] = pe.errored_signal_generate(d, sigma, tx_pow)
     return sig
 
-def netEstimateRound(est, ready, dist, detect, sinkdist=None, sinkdet=None, initial=False, anchors=[], tempr=5):
-    newest = copy.deepcopy(est)
+def netEstimateRound(loc_est, params, ready, dist, detect, sinkdist=None, sinkdet=None, initial=False, anchors=[], tempr=5):
+    newloc_est = copy.deepcopy(loc_est)
+    sigmasq_est, P0_est, gamma_est, sigmasq_sigma, P0_sigma, gamma_sigma = \
+        params[0], params[1], params[2], params[3], params[4], params[5]
     newready = copy.deepcopy(ready)
+    sigmasq_raw = np.zeros(loc_est.shape[0])
+    P0_raw = np.zeros(loc_est.shape[0])
+    gamma_raw = np.zeros(loc_est.shape[0])
     for i in range(dist.shape[0]):
         if i not in ready:
             dist_i = []
-            est_i = []
+            loc_est_i = []
             miss_i = []
             for j in range(dist.shape[0]):
                 if (j in ready or not initial) and (j != i):
                     if detect[j, i]:
                         dist_i.append(dist[j, i])
-                        est_i.append(est[j])
+                        loc_est_i.append(loc_est[j])
                     else:
-                        miss_i.append(est[j])
+                        miss_i.append(loc_est[j])
             # if sinkdet[i]:
             #    dist_i.append(sinkdist[i])
-            #    est_i.append((0, 0))
+            #    loc_est_i.append((0, 0))
             dist_i = np.array(dist_i)
-            est_i = np.array(est_i)
+            loc_est_i = np.array(loc_est_i)
             miss_i = np.array(miss_i)
             if len(dist_i) >= 3:
                 if i not in anchors:
-                    newest[i] = pe.position_estimate_like2(est_i, dist_i, pos_miss=miss_i)
-                    #newest[i] = pe.position_estimate_like_metro(est_i, dist_i, tempr, est[i])
+                    params_i = np.array([sigmasq_est[i], P0_est[i], gamma_est[i],
+                                         sigmasq_sigma[i], P0_sigma[i], gamma_sigma[i]])
+                    newloc_est[i], sigmasq_raw[i], P0_raw[i], gamma_raw[i] = \
+                        pe.position_estimate_like(loc_est_i, dist_i, pos_miss=miss_i), 0, 0, 0
+                    # newloc_est[i], sigmasq_raw[i], P0_raw[i], gamma_raw[i] = \
+                    #    pe.position_estimate_like2(loc_est_i, dist_i, params=params_i, pos_miss=miss_i)
+                    #newloc_est[i] = pe.position_estimate_like_metro(loc_est_i, dist_i, tempr, est[i])
                 newready.append(i)
-    est = newest
+    loc_est = newloc_est
+    sigmasq_est, sigmasq_sigma = update_param(detect, sigmasq_raw, anchors)
+    P0_est, P0_sigma = update_param(detect, P0_raw, anchors)
+    gamma_est, gamma_sigma = update_param(detect, gamma_raw, anchors)
+    params_estsigma = np.array([sigmasq_est, P0_est, gamma_est, sigmasq_sigma, P0_sigma, gamma_sigma])
     nr_added = copy.deepcopy(newready)
     for x in ready:
         nr_added.remove(x)
     changed = False if nr_added == [] else True
     ready = newready
-    return est, ready, changed
+    return loc_est, ready, changed, params_estsigma
 
 def detect(dist, sinkdist, rge):
     det = np.zeros(dist.shape)
@@ -198,6 +199,9 @@ def secondreference(dist, det, sinkdist, sinkdet, ref1, ref1_est, sink_ix = 0):
                 min_ix = i
         if det[ref1, min_ix]:
             found = True
+        elif min_ix == -1:
+            found = False
+            return -1, [0,0]
         else:
             nok.append(min_ix)
             min_ix = -1
@@ -213,6 +217,21 @@ def update(est, ready, ixs, newest):
         est[i] = newest[n]
     return
 
+def update_param(detect, raw, anchors):
+    est = np.zeros(raw.shape[0])
+    est_sigmasq = np.zeros(raw.shape[0])
+    for i in range(detect.shape[0]):
+        sum = 0
+        sum_sq = 0
+        counter = 0
+        for j in range(detect.shape[0]):
+            if (detect[i,j] or i==j) and j not in anchors:
+                sum += raw[j]
+                sum_sq += raw[j] ** 2
+                counter += 1
+        est[i] = sum / counter
+        est_sigmasq[i] = (sum_sq - (1 / counter) * sum ** 2)/(counter - 1)
+    return est, est_sigmasq
 
 def allReady(ready, num, required=None):
     if required == None:
@@ -229,6 +248,8 @@ def net_estimate(dist_err, rge, iters, half_nw, sinkdist_err = None, nodes=None,
     det, sinkdet = detect(dist_err, sinkdist_err, rge)
     ref1, ref1_est = firstreference(sinkdist_err, sinkdet)
     ref2, ref2_est = secondreference(dist_err, det, sinkdist_err, sinkdet, ref1, ref1_est)
+    if ref2 == -1:
+        return None, None, None, None
     est = np.zeros((sinkdist_err.shape[0], 2))
     ready = []
     update(est, ready, [sink_ix, ref1, ref2], [(0, 0), ref1_est, ref2_est])
@@ -243,14 +264,15 @@ def net_estimate(dist_err, rge, iters, half_nw, sinkdist_err = None, nodes=None,
     det_full = np.zeros(det.shape) + 1
     t0 = 50
     tempr = t0
+    params_estsigma = np.zeros((6, dist_err.shape[0]))
+    params_estsigma[3:,:] = np.inf * np.ones((3, dist_err.shape[0]))
     for i in range(iters - 1):
-        if i%50 == 0:
-            print("iteration number:"+str(i))
         prev_est = copy.deepcopy(est)
         iter_ready = []
         while not allReady(iter_ready, dist_err.shape[0], required=ready):
             # est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det, sinkdist_err, sinkdet)
-            est, iter_ready, changed = netEstimateRound(est, iter_ready, dist_err, det_full, anchors=anchors, tempr=tempr)
+            est, iter_ready, changed, params_estsigma = \
+                netEstimateRound(est, params_estsigma, iter_ready, dist_err, det_full, anchors=anchors, tempr=tempr)
         if nodes is not None:
             #fixed_est = fe.fix_est(est, ref1, ref2, nodes[ref1], nodes[ref2])
             location_errors = fe.get_location_errors(nodes, est)
@@ -261,6 +283,9 @@ def net_estimate(dist_err, rge, iters, half_nw, sinkdist_err = None, nodes=None,
         #print("Estimation diff "+str(i)+" "+str(mean_diff))
         #tempr *= (1 - 0.0005)
         tempr = t0 * ((iters - i)/iters) ** 4
+    #print("sigma_est", params_estsigma[0, :])
+    #print("P0_est", params_estsigma[1, :])
+    #print("gamma_est", params_estsigma[2, :])
     return det, est, ref1, ref2
 
 def net_estimate_global(dist_err, rge, anchor_locs, n_anc, init_est = None):
@@ -288,10 +313,9 @@ def plot_pos(nodes, est, mean_location_error, halfwidth = 1000, detect = None, a
             col = 'red'
         plt.plot(n[0], n[1], label='', linestyle="None", marker=mark, markersize=3, color=col, fillstyle='none')
         ax.annotate(text =str(ix), xy = [n[0], n[1]], color=colors[ix % len(colors)])
-    if index == 0:
-        filename = 'node_positions'
-        plt.savefig(filename)
-        plt.close()
+    filename = 'plots\\node_positions'+str(index)
+    plt.savefig(filename)
+    plt.close()
 
     fig_est, ax_est = plt.subplots(figsize=(6, 6), num="Estimated positions")
     for ix, n in enumerate(est):
@@ -302,7 +326,7 @@ def plot_pos(nodes, est, mean_location_error, halfwidth = 1000, detect = None, a
         if ix in anchors:
             col = 'red'
         plt.plot(n[0], n[1], label='', linestyle="None", marker=mark, markersize=3, color=col, fillstyle='none')
-        ax_est.annotate(text =str(ix), xy = [n[0], n[1]], color=colors[ix % len(colors)])
+        ax_est.annotate(text=str(ix), xy=[n[0], n[1]], color=colors[ix % len(colors)])
         if detect is not None:
             for ix2, n2 in enumerate(est):
                 if detect[ix, ix2]:
@@ -317,9 +341,57 @@ def plot_pos(nodes, est, mean_location_error, halfwidth = 1000, detect = None, a
         plt.show()
         pass
     elif mode=='save':
-        filename = 'posestplot'+str(index)
-        plt.savefig(filename)
-        plt.close()
+        filename = 'plots\\posestplot'+str(index)
+        #plt.savefig(filename)
+        #plt.close()
 
 if __name__ == '__main__':
-    main()
+    iters = 5
+    scale_of_iters = 10
+    text_file_name = "position_estimator_results"
+
+    sink_ix = 0
+    coordfixer = False
+    static = False
+    glob = False
+    tx_pow = 100
+
+    half_netwidth = [1000]
+    nr_of_nodes = [200]
+    # terms of % of nodes
+    nr_of_anchors = [10]
+    maxrange = [1000]
+    sigma = [10]
+
+    estimator_iters = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+    counter = 0
+    bigcounter = 0
+    for hn in half_netwidth:
+        for nn in nr_of_nodes:
+            for na in nr_of_anchors:
+                for mr in maxrange:
+                    for sig in sigma:
+                        for it in estimator_iters:
+                            errors = []
+                            notclassified = []
+                            iters_of_nodenr = 500 // nn
+                            iters = iters_of_nodenr * scale_of_iters
+                            s = 0
+                            n = 0
+                            for i in range(iters):
+                                err, nc = main(counter, sink_ix, coordfixer, static, glob, hn, nn, nn*na//100, mr, sig, tx_pow, it)
+                                errors.append(err)
+                                s += err * (nn - nc)
+                                n += nn - nc
+                                notclassified.append(nc)
+                                print("iter ",i," done")
+                                counter += 1
+                                bigcounter += 1
+                            notclassified = np.array(notclassified)
+                            avr_error = s / n
+                            avr_nc = sum(notclassified)/len(notclassified)
+                            print(bigcounter," done ")
+                            with open('results.txt', 'a') as f:
+                                f.write(" Half netwidth "+str(hn)+" Nodes: "+str(nn) +"Anchors: "+str(na)+" Maximum range "+str(mr)+" sigma "+
+                                        str(sig)+" Mean location error "+str(avr_error)+
+                                        " Average nonclassified "+str(avr_nc)+' \n ')
